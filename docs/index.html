@@ -77,6 +77,8 @@ h3{font-size:18px;font-weight:650}
 .hero h1 span{color:var(--accent-2)}
 .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
 .meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;color:var(--faint);font-size:13px}
+.also{margin:10px 0 0;color:var(--muted);font-size:14px}
+.also a{color:var(--accent);font-weight:600}
 .meta span::before{content:"✓ ";color:var(--accent-2);font-weight:700}
 .disclaimer{margin-top:22px;font-size:12.5px;color:var(--faint);max-width:52ch}
 
@@ -268,6 +270,7 @@ footer a{color:var(--muted)}
           <a class="btn ghost" href="#install">How to install</a>
         </div>
         <div class="meta"><span>Version 1.1</span><span>macOS 13 or later</span><span>Apple silicon</span><span>Free &amp; open source</span></div>
+        <p class="also">On Windows 11? <a href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/FiberVoice-Setup.exe">Download for Windows</a> (preview) · <a href="#windows">Windows notes</a></p>
         <p class="disclaimer">Fiber Voice is an independent, unofficial app. It is not made by, affiliated with or endorsed by Jio, and it only works on your own JioFiber connection.</p>
       </div>
 
@@ -494,7 +497,7 @@ footer a{color:var(--muted)}
       <div class="other">
         <div class="card"><h3>Intel Mac</h3><p>Build your own copy in a few minutes with Xcode Command Line Tools and Homebrew: <code>./macapp/build.sh</code>.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice#option-2-build-the-mac-app">Build instructions →</a></p></div>
         <div class="card"><h3>Any browser (macOS or Linux)</h3><p>Run the gateway with <code>./run.sh</code> and use the same dialer at <code>127.0.0.1:8765</code> in Chrome, Safari, Edge or Firefox.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice#option-1-use-it-in-your-web-browser">Browser instructions →</a></p></div>
-        <div class="card"><h3>Windows (preview)</h3><p>Install the Windows 11 app with <code>FiberVoice-Setup.exe</code>, built with <code>./winapp/build.ps1</code>. It hasn't been tested on a live JioFiber line yet.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice#option-3-windows-app">Windows instructions →</a></p></div>
+        <div class="card" id="windows"><h3>Windows 11 (preview)</h3><p>Download <code>FiberVoice-Setup.exe</code> and run it. It isn't signed yet, so Windows may show “Windows protected your PC”: choose <b>More info ▸ Run anyway</b>. Setup is the same as on Mac. The Windows app hasn't been tested on a live JioFiber line yet.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/FiberVoice-Setup.exe">Download for Windows →</a> · <a href="https://github.com/Ibnealamkhan/fiber-voice/blob/main/winapp/README.md">Windows guide</a></p></div>
       </div>
     </div>
   </section>
@@ -508,6 +511,7 @@ footer a{color:var(--muted)}
         </div>
         <div class="cta" style="margin:0">
           <a class="btn primary" href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/Fiber-Voice-mac-arm64.dmg">Download for Mac</a>
+          <a class="btn ghost" href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/FiberVoice-Setup.exe">Download for Windows</a>
           <a class="btn ghost" href="https://github.com/Ibnealamkhan/fiber-voice/releases">All releases</a>
         </div>
       </div>
