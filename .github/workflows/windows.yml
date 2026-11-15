@@ -33,7 +33,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Gateway lifecycle test failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: FiberVoice-Windows-x64
-          path: |
-            winapp/dist/FiberVoice.exe
-            winapp/dist/FiberVoice-Setup.exe
+          name: FiberVoice-Setup-Windows-x64
+          path: winapp/dist/FiberVoice-Setup.exe

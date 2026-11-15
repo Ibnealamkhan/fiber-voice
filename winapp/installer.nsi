@@ -57,7 +57,7 @@ FunctionEnd
 Section "Fiber Voice (required)" Main
   SectionIn RO
   SetOutPath "$INSTDIR"
-  File "dist\FiberVoice.exe"
+  File "build\app\FiberVoice.exe"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateShortCut "$SMPROGRAMS\Fiber Voice.lnk" "$INSTDIR\FiberVoice.exe" "" "$INSTDIR\FiberVoice.exe" 0
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Fiber Voice"

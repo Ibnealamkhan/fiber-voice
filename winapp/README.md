@@ -1,8 +1,8 @@
 # Fiber Voice for Windows
 
-Open **FiberVoice.exe** to make and receive JioFiber landline calls. This is a
-single, portable Windows x64 app. No terminal, WSL, Docker, Python installation,
-or .NET installation is needed on the computer running it.
+Install with **FiberVoice-Setup.exe** to make and receive JioFiber landline calls
+on Windows x64. No terminal, Python or .NET installation is needed on the
+computer running it.
 
 ## Use
 
@@ -17,15 +17,14 @@ or .NET installation is needed on the computer running it.
    directions.
 
 The C# Windows app bundles the existing Python calling engine and its runtime,
-audio codecs, web dialer, and .NET runtime inside the EXE. It extracts the engine
-on first launch and starts it automatically on a free loopback port. The engine
-stops when you quit the app, and also shuts down if the app crashes. The first
-launch may take longer while files are unpacked.
+audio codecs, web dialer, and .NET runtime inside the installed app. It extracts
+the engine on first launch and starts it automatically on a free loopback port.
+The engine stops when you quit the app, and also shuts down if the app crashes.
+The first launch may take longer while files are unpacked.
 
 If Edge WebView2 is missing, the app runs Microsoft’s bundled runtime installer.
-That first-time step needs internet access. The app does not install or configure
-WSL or Docker. Windows 11 x64 is the target; native Windows ARM64 builds are not
-provided. The EXE is unsigned.
+That first-time step needs internet access. Windows 11 x64 is the target; native
+Windows ARM64 builds are not provided. The installer is unsigned.
 
 Closing the window keeps the app running in the system tray so calls can ring.
 Right-click its tray icon and choose **Quit** to stop it. Incoming calls open the
@@ -51,8 +50,7 @@ On a build computer, install Python 3.14+ with pip, the .NET 10 SDK, and NSIS, t
 ./winapp/build.ps1
 ```
 
-Outputs: `winapp/dist/FiberVoice-Setup.exe` (installer) and
-`winapp/dist/FiberVoice.exe` (portable). The installer registers **Fiber Voice** in
+Output: `winapp/dist/FiberVoice-Setup.exe`. The installer registers **Fiber Voice** in
 Windows Installed apps and provides an uninstaller. Uninstalling keeps your
 settings and call history. Python 3.14 is only a build requirement;
 the included Windows engine uses CPython 3.13.16. Downloads and Windows wheels
@@ -63,12 +61,11 @@ Cross-build on macOS/Linux:
 
 ```sh
 python3 winapp/prepare_bundle.py
-dotnet publish winapp/FiberVoice.csproj -c Release -r win-x64 --self-contained true -o winapp/dist/standalone-win-x64
-cp winapp/dist/standalone-win-x64/FiberVoice.exe winapp/dist/FiberVoice.exe
-cd winapp && makensis installer.nsi
+dotnet publish winapp/FiberVoice.csproj -c Release -r win-x64 --self-contained true -o winapp/build/app
+mkdir -p winapp/dist && cd winapp && makensis installer.nsi
 ```
 
-The **Windows app** GitHub Actions workflow builds the EXE and checks native
+The **Windows app** GitHub Actions workflow builds the installer and checks native
 codec loading and gateway startup/shutdown on Windows. It does not publish a
 release. Actual router registration, media, WebView2 permissions and tray behavior
 still need verification on a Windows PC connected to JioFiber.

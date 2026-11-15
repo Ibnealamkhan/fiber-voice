@@ -37,7 +37,7 @@ A small local gateway registers with your JioFiber router as one more device on 
 
 ## Option 1: Use it in your web browser
 
-Works on **macOS** and **Linux**. On Windows, see [Option 3](#option-3-windows-docker-in-wsl2).
+Works on **macOS** and **Linux**. On Windows, use the [Windows app](#option-3-windows-app).
 
 **1. Install the requirements**
 
@@ -132,18 +132,14 @@ Full Mac app guide (menu bar, notifications, contacts, Do Not Disturb, troublesh
 ## Option 3: Windows app
 
 Run **FiberVoice-Setup.exe** to install **Fiber Voice**, with its app icon and
-Start menu and desktop shortcuts. A portable **FiberVoice.exe** is also provided.
-The app starts its bundled calling engine automatically. No
-Python installation, WSL, Docker or terminal is required. Complete router trust
-and OTP setup in the app, just like on Mac.
+Start menu and desktop shortcuts. The app starts its bundled calling engine
+automatically: no Python, terminal or other software is needed. Complete router
+trust and OTP setup in the app, just like on Mac.
 
-Build the installer and portable EXE with `./winapp/build.ps1` in PowerShell;
-outputs are in `winapp/dist/`. See the [Windows app guide](winapp/README.md).
+Build the installer with `./winapp/build.ps1` in PowerShell; it is written to
+`winapp/dist/FiberVoice-Setup.exe`. See the [Windows app guide](winapp/README.md).
 Windows 11 x64 is the target. The app installs Microsoft Edge WebView2 if missing
 (internet required for that first-time step).
-
-The earlier browser-based [Docker/WSL2 setup](gateway/DOCKER-WINDOWS.md) remains
-available as a separate alternative.
 
 ---
 
@@ -171,6 +167,7 @@ To start over, for example after changing routers, use **Log out** in the sideba
 
 Diagnostics:
 - **Mac app:** **Help ▸ Show Gateway Log**.
+- **Windows app:** `%LOCALAPPDATA%\Fiber Voice\gateway.log`.
 - **Browser version:** the terminal running `run.sh`.
 
 Logs mask phone numbers to their last 4 digits.
@@ -188,8 +185,7 @@ Logs mask phone numbers to their last 4 digits.
 gateway/            Python SIP/WebRTC gateway and the web dialer (static/)
   run.sh            start it for browser use
   tests/            unit and end-to-end audio tests
-  Dockerfile, compose.yaml, DOCKER-WINDOWS.md
-winapp/             Windows desktop app (C#), bundled engine, single EXE build
+winapp/             Windows desktop app (C#) and its installer (FiberVoice-Setup.exe)
 macapp/             native macOS app (Swift) and build script
   Sources/          app shell: window, menu bar, notifications, contacts, tel: links
   build.sh          builds Fiber Voice.app and the DMG

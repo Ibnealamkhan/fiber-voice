@@ -5,7 +5,6 @@ __pycache__/
 gateway/.runtime/
 .env
 .DS_Store
-gateway-docker.zip
 macapp/build/
 macapp/dist/
 winapp/bin/
