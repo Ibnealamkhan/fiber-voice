@@ -5,7 +5,7 @@ Unicode True
 !define APP_NAME "Fiber Voice"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\FiberVoice"
 Name "${APP_NAME}"
-OutFile "dist/FiberVoice-Setup.exe"
+OutFile "dist\FiberVoice-Setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\Fiber Voice"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 RequestExecutionLevel user
@@ -23,7 +23,7 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "Fiber Voice contributors"
 !define MUI_UNICON "AppIcon.ico"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "../LICENSE"
+!insertmacro MUI_PAGE_LICENSE "..\LICENSE"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -57,7 +57,7 @@ FunctionEnd
 Section "Fiber Voice (required)" Main
   SectionIn RO
   SetOutPath "$INSTDIR"
-  File "dist/FiberVoice.exe"
+  File "dist\FiberVoice.exe"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateShortCut "$SMPROGRAMS\Fiber Voice.lnk" "$INSTDIR\FiberVoice.exe" "" "$INSTDIR\FiberVoice.exe" 0
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Fiber Voice"
