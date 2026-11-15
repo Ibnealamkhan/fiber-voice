@@ -1,0 +1,29 @@
+services:
+  gateway:
+    build: .
+    image: jio-fiber-gateway:local
+    # Linux Docker Engine, including inside WSL2 with mirrored networking.
+    # SIP/RTP advertise the real LAN IPv6 address; bridge/NAT is unsuitable.
+    network_mode: host
+    user: "${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 25s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    volumes:
+      - type: bind
+        source: ./.runtime
+        target: /app/.runtime
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

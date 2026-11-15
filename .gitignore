@@ -1,0 +1,10 @@
+analysis/
+gateway/.venv/
+__pycache__/
+*.pyc
+gateway/.runtime/
+.env
+.DS_Store
+gateway-docker.zip
+macapp/build/
+macapp/dist/
