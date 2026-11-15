@@ -8,3 +8,7 @@ gateway/.runtime/
 gateway-docker.zip
 macapp/build/
 macapp/dist/
+winapp/bin/
+winapp/obj/
+winapp/dist/
+winapp/build/

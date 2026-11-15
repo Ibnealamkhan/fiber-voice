@@ -19,13 +19,15 @@ OFFER_CODECS = {120: ('AMR-WB', True), 121: ('AMR-WB', False), 118: ('AMR', True
 
 
 def library(name):
-    # Bundled copies (Mac app) take precedence over system/Homebrew libraries.
+    # Desktop apps bundle codecs beside the gateway, outside the system path.
     bundled = os.environ.get('GATEWAY_LIB_DIR')
     if bundled:
-        try:
-            return C.CDLL(os.path.join(bundled, 'lib' + name + '.dylib'))
-        except OSError:
-            pass
+        filenames = ([f'lib{name}-0.dll', f'{name}.dll'] if os.name == 'nt'
+                     else [f'lib{name}.dylib', f'lib{name}.so'])
+        for filename in filenames:
+            candidate = os.path.join(bundled, filename)
+            if os.path.isfile(candidate):
+                return C.CDLL(candidate)
     path = ctypes.util.find_library(name)
     if not path:
         for prefix in ['/opt/homebrew/lib/', '/usr/local/lib/']:

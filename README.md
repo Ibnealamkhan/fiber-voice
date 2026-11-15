@@ -1,6 +1,6 @@
 # Fiber Voice
 
-Make and receive calls on your **JioFiber landline number** from a computer on your JioFiber network, using its microphone and speakers. Use it in a web browser, or build a native Mac app.
+Make and receive calls on your **JioFiber landline number** from a computer on your JioFiber network, using its microphone and speakers. Use it in a web browser, or build a Mac or Windows desktop app.
 
 **[Download for Mac and setup guide →](https://ibnealamkhan.github.io/fiber-voice/)** (Apple silicon, macOS 13 or later)
 
@@ -129,9 +129,21 @@ Full Mac app guide (menu bar, notifications, contacts, Do Not Disturb, troublesh
 
 ---
 
-## Option 3: Windows (Docker in WSL2)
+## Option 3: Windows app
 
-Run the gateway in Docker inside Ubuntu on WSL2, with mirrored networking (Windows 11 22H2 or later), then use the dialer in Chrome or Edge. Step-by-step guide: [gateway/DOCKER-WINDOWS.md](gateway/DOCKER-WINDOWS.md).
+Run **FiberVoice-Setup.exe** to install **Fiber Voice**, with its app icon and
+Start menu and desktop shortcuts. A portable **FiberVoice.exe** is also provided.
+The app starts its bundled calling engine automatically. No
+Python installation, WSL, Docker or terminal is required. Complete router trust
+and OTP setup in the app, just like on Mac.
+
+Build the installer and portable EXE with `./winapp/build.ps1` in PowerShell;
+outputs are in `winapp/dist/`. See the [Windows app guide](winapp/README.md).
+Windows 11 x64 is the target. The app installs Microsoft Edge WebView2 if missing
+(internet required for that first-time step).
+
+The earlier browser-based [Docker/WSL2 setup](gateway/DOCKER-WINDOWS.md) remains
+available as a separate alternative.
 
 ---
 
@@ -177,6 +189,7 @@ gateway/            Python SIP/WebRTC gateway and the web dialer (static/)
   run.sh            start it for browser use
   tests/            unit and end-to-end audio tests
   Dockerfile, compose.yaml, DOCKER-WINDOWS.md
+winapp/             Windows desktop app (C#), bundled engine, single EXE build
 macapp/             native macOS app (Swift) and build script
   Sources/          app shell: window, menu bar, notifications, contacts, tel: links
   build.sh          builds Fiber Voice.app and the DMG

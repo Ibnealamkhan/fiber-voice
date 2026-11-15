@@ -3,6 +3,7 @@ import math
 import struct
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import av
@@ -11,6 +12,16 @@ from media import AmrCodec, pack_amr, unpack_amr, parse_rtp, parse_sdp, MediaSes
 SDP='v=0\r\nc=IN IP6 2001:db8::5\r\nm=audio 52000 RTP/AVP 120 127\r\na=rtpmap:120 AMR-WB/16000\r\na=fmtp:120 octet-align=1;mode-set=0,1,2\r\na=rtpmap:127 telephone-event/16000\r\n'
 
 class MediaTests(unittest.TestCase):
+    def test_windows_bundled_codec_uses_dll_and_does_not_hide_load_errors(self):
+        from media import library
+        with patch('media.os.name', 'nt'), patch.dict('os.environ', {'GATEWAY_LIB_DIR': 'bundled'}), \
+             patch('media.os.path.isfile', return_value=True), patch('media.C.CDLL') as load:
+            library('opencore-amrnb')
+            self.assertTrue(load.call_args.args[0].endswith('libopencore-amrnb-0.dll'))
+            load.side_effect = OSError('Missing dependency')
+            with self.assertRaisesRegex(OSError, 'Missing dependency'):
+                library('opencore-amrnb')
+
     def test_all_native_modes_and_both_rfc4867_payloads(self):
         self.assertTrue(codec_capabilities()['ready'])
         for wb in (False,True):
