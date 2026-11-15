@@ -13,10 +13,10 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 Icon "AppIcon.ico"
 UninstallIcon "AppIcon.ico"
-VIProductVersion "1.0.0.0"
+VIProductVersion "1.1.2.0"
 VIAddVersionKey /LANG=1033 "ProductName" "Fiber Voice"
 VIAddVersionKey /LANG=1033 "FileDescription" "Fiber Voice Setup"
-VIAddVersionKey /LANG=1033 "FileVersion" "1.0.0"
+VIAddVersionKey /LANG=1033 "FileVersion" "1.1.2"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Fiber Voice contributors"
 
 !define MUI_ICON "AppIcon.ico"
@@ -61,7 +61,7 @@ Section "Fiber Voice (required)" Main
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateShortCut "$SMPROGRAMS\Fiber Voice.lnk" "$INSTDIR\FiberVoice.exe" "" "$INSTDIR\FiberVoice.exe" 0
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Fiber Voice"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "1.0.0"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "1.1.2"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "Fiber Voice"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" '"$INSTDIR\FiberVoice.exe",0'
