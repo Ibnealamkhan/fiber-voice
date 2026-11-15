@@ -404,7 +404,15 @@ class MediaSession:
     def negotiate(self, sdp, incoming=False):
         remote = parse_sdp(sdp, require_offered=not incoming)
         if self.codec and remote['codec'] != self.remote['codec']:
-            raise ValueError('Changing AMR family within an established call is unsupported')
+            # The network can switch between AMR-WB and AMR when the far end answers
+            # (the ringback came from elsewhere). Start a fresh codec and receive buffer.
+            old, self.codec = self.codec, None
+            self.frames.clear()
+            self.play_timestamp = self.first_arrival = self.newest_timestamp = None
+            try:
+                asyncio.get_running_loop().call_later(1, old.close)  # let in-flight frames finish first
+            except RuntimeError:
+                old.close()
         if not self.codec:
             self.codec = AmrCodec(remote['codec']=='AMR-WB',remote['mode'])
             previous_rate = self.rate

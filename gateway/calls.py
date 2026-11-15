@@ -344,6 +344,10 @@ class Calls:
             raise
         except Exception as error:
             if call.state in LIVE:
+                # Diagnostic log (gateway.log): what the network sent before setup gave up.
+                print(f'Outgoing call to …{call.number[-4:]} failed: {str(error) or "no final answer within 65 s"} (state {call.state})',flush=True)
+                print(f'  dialled: {masked(call.target)}',flush=True)
+                for line in call.trace:print('  '+line,flush=True)
                 if call.provisional and not call.remote_tag:
                     try:await self.send_cancel(call)
                     except Exception:pass
@@ -397,6 +401,7 @@ class Calls:
             queue.put_nowait((start,headers,body))
         elif parts[1]=='INVITE' and start.startswith('SIP/2.0 2') and call.direction=='outgoing':
             # A retransmitted 2xx must still receive its end-to-end ACK.
+            if call.ended:print(f'Late answer for call to …{call.number[-4:]} (state {call.state}, CSeq {parts[0]}, waiting for {call.invite_cseq})',flush=True)
             remote_to=first(headers,'to')
             target=uri_from(first(headers,'contact',call.target))
             routes=list(reversed(headers.get('record-route',[])))
@@ -471,11 +476,17 @@ class Calls:
             await self.registration._send(response_message(headers,200,'OK',call.local_tag));return True
         if method=='UPDATE' and early and call.state in ('dialing','ringing','early_media','ending'):
             # Session update before answer (e.g. codec or early media change): accept it.
+            before=(call.media.remote or {}).get('codec')
             try:
                 if body:call.media.negotiate(body.decode(),incoming=True);call.state='early_media' if call.state!='ending' else call.state
                 response_body=call.media.sdp(answer=True) if body else ''
                 reply=response_message(headers,200,'OK',call.local_tag,['Contact: '+self.registration.contact],response_body)
-            except Exception:reply=response_message(headers,488,'Not Acceptable Here',call.local_tag)
+                after=(call.media.remote or {}).get('codec')
+                call.trace.append(f'→ 200 OK to UPDATE'+(f' (audio {before} → {after})' if before!=after else f' ({after})'))
+            except Exception as error:
+                reply=response_message(headers,488,'Not Acceptable Here',call.local_tag)
+                call.trace.append(masked(f'→ 488 to UPDATE: {error}'))
+                print(masked(f'Call to …{call.number[-4:]}: early UPDATE rejected: {error}'),flush=True)
             await self.registration._send(reply);return True
         if method in ('UPDATE','INVITE'):
             if call.state not in ('active','answering'):

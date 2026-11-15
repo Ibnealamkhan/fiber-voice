@@ -86,6 +86,23 @@ class MediaNetworkTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(b.stats()['bytesReceived'],100)
         finally:await a.close();await b.close()
 
+class CodecSwitchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_update_can_switch_from_amr_wb_ringback_to_amr_when_answered(self):
+        media=await MediaSession('::1').open()
+        try:
+            media.negotiate(SDP)  # 183 early media in AMR-WB
+            self.assertEqual((media.remote['codec'],media.rate),('AMR-WB',16000))
+            media.frames[0]=b'stale'
+            narrow=SDP.replace('AMR-WB/16000','AMR/8000').replace('telephone-event/16000','telephone-event/8000').replace('mode-set=0,1,2','mode-set=7')
+            media.negotiate(narrow,incoming=True)  # UPDATE when the phone is answered
+            self.assertEqual((media.remote['codec'],media.rate,media.codec.wideband),('AMR',8000,False))
+            self.assertEqual(media.frames,{})
+            self.assertIn('AMR/8000',media.sdp(answer=True))
+            self.assertEqual(len(media.codec.encode(bytes(media.codec.samples*2)))>0,True)
+        finally:
+            await media.close()
+
+
 class DtmfTests(unittest.IsolatedAsyncioTestCase):
     async def test_rfc4733_event_duration_and_repeated_end(self):
         packets=[]
