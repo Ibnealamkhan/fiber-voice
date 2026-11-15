@@ -204,9 +204,11 @@ footer{padding:36px 0 48px;color:var(--faint);font-size:13.5px}
 footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 footer a{color:var(--muted)}
 
+@media (max-width:1060px){
+  .hero .wrap{grid-template-columns:1fr;gap:40px}
+  .mock-wrap{max-width:620px}
+}
 @media (max-width:980px){
-  .hero .wrap{grid-template-columns:1fr}
-  .mock-wrap{max-width:560px}
   .g4,.req{grid-template-columns:repeat(2,1fr)}
   .g3,.other{grid-template-columns:1fr 1fr}
   .step{grid-template-columns:44px 1fr}
