@@ -93,12 +93,12 @@ function renderLineStatus(){
   const state=ui.reg||{},ok=state.registered===true,dnd=ui.dnd.active===true;
   $('line-status').className='line-status '+(ok?(dnd?'dnd':'ok'):state.error?'bad':'');
   text('line-status-text',ok?(dnd?'Do Not Disturb':'Ready for calls'):state.state==='needs_authorization'?'Not set up':'Connecting…');
+  $('line-status').title=ok?'':state.error||'';
 }
 function renderRegistration(state){
   if(!state)return;ui.reg=state;
   const ok=state.registered===true;
   renderLineStatus();
-  box.title=ok?'':state.error||'';
   text('registration-state',ok?`Registered · SIP ${state.sipCode}`:state.error||'Not registered');
   $('registration-state').className=ok?'ok':'warn';
   if(state.transport)text('transport',state.transport);
