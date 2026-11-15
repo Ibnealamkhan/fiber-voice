@@ -138,6 +138,11 @@ section{padding:72px 0}
 .card p{color:var(--muted);margin:8px 0 0;font-size:15px}
 .f-ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-2);margin-bottom:14px}
 .f-ic svg{width:21px;height:21px;fill:currentColor}
+.new-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.card.new{position:relative;border-color:color-mix(in srgb,var(--accent-2) 40%,var(--line));background:linear-gradient(180deg,color-mix(in srgb,var(--accent-soft) 70%,var(--panel)),var(--panel))}
+.tag-new{position:absolute;top:18px;right:18px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:var(--accent);color:#fff}
+.tag-new.beta{background:var(--line-2);color:var(--text)}
+@media (max-width:620px){.new-row{grid-template-columns:1fr}}
 
 /* requirements */
 .req{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
@@ -262,7 +267,7 @@ footer a{color:var(--muted)}
           </a>
           <a class="btn ghost" href="#install">How to install</a>
         </div>
-        <div class="meta"><span>macOS 13 or later</span><span>Apple silicon</span><span>Free &amp; open source</span></div>
+        <div class="meta"><span>Version 1.1</span><span>macOS 13 or later</span><span>Apple silicon</span><span>Free &amp; open source</span></div>
         <p class="disclaimer">Fiber Voice is an independent, unofficial app. It is not made by, affiliated with or endorsed by Jio, and it only works on your own JioFiber connection.</p>
       </div>
 
@@ -306,6 +311,10 @@ footer a{color:var(--muted)}
       <div class="head">
         <p class="eyebrow">Features</p>
         <h2>Everything a desk phone does, built into your Mac.</h2>
+      </div>
+      <div class="new-row">
+        <div class="card new"><span class="tag-new">New in 1.1</span><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div><h3>Conference calls</h3><p>During a call, click <b>Add</b> and pick a contact or type a number. Fiber Voice calls them and merges them in when they answer. Add up to 6 people and watch each person’s status live.</p></div>
+        <div class="card new"><span class="tag-new beta">Beta</span><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg></div><h3>Video calls</h3><p>Call phones that support video calling, with the camera button next to Call, or answer incoming video calls with video. The other person fills the window, with your preview in the corner.</p></div>
       </div>
       <div class="grid g3">
         <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.58.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.6 21 3 13.4 3 4c0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.46.57 3.58.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></div><h3>HD calls from your number</h3><p>Outgoing and incoming calls in HD voice, a keypad for phone menus, mute, and a call timer. Type or paste a number anywhere and press Return.</p></div>
@@ -495,7 +504,7 @@ footer a{color:var(--muted)}
       <div class="download-band">
         <div>
           <h2>Ready to call from your Mac?</h2>
-          <p>Free and open source. macOS 13 or later on Apple silicon.</p>
+          <p>Version 1.1, with conference calls and video calls (beta). Free and open source; macOS 13 or later on Apple silicon.</p>
         </div>
         <div class="cta" style="margin:0">
           <a class="btn primary" href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/Fiber-Voice-mac-arm64.dmg">Download for Mac</a>
