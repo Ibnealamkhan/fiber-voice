@@ -9,6 +9,8 @@ Make and receive calls on your **JioFiber landline number** from a computer on y
 ## Features
 
 - **Calling:** outgoing and incoming calls in HD voice (AMR-WB), a keypad for phone menus, mute, and a call timer.
+- **Conference calls:** add people to a call (up to 6), phone-style: the app calls each person, then Jio's network merges them in, with live status for each person.
+- **Video calls (beta):** H.264 video at up to 640×480 with phones that support video calling, with camera on/off and answer-with-video.
 - **Recents:** a call log with missed, blocked and unreachable calls, plus search.
 - **Contacts:** names you save in the app, favourites, and per-contact call history. The Mac app can also show names from your Mac's Contacts.
 - **Block list and Do Not Disturb:** manual, for 1 hour, until morning, or every night on a schedule, with an option to let repeated callers through.

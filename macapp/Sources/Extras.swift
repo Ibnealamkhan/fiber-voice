@@ -84,8 +84,11 @@ extension AppDelegate: NSMenuDelegate {
         let answer = UNNotificationAction(identifier: "ANSWER", title: "Answer", options: [.foreground])
         let decline = UNNotificationAction(identifier: "DECLINE", title: "Decline", options: [.destructive])
         let callBack = UNNotificationAction(identifier: "CALL_BACK", title: "Call Back", options: [.foreground])
+        let answerVideo = UNNotificationAction(identifier: "ANSWER_VIDEO", title: "Answer with Video", options: [.foreground])
+        let answerVoice = UNNotificationAction(identifier: "ANSWER", title: "Answer Voice Only", options: [.foreground])
         UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(identifier: "INCOMING_CALL", actions: [answer, decline], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: "INCOMING_VIDEO_CALL", actions: [answerVideo, answerVoice, decline], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "MISSED_CALL", actions: [callBack], intentIdentifiers: [], options: []),
         ])
     }
@@ -95,6 +98,9 @@ extension AppDelegate: NSMenuDelegate {
         case "ANSWER":
             showWindow()
             callPage("answer")
+        case "ANSWER_VIDEO":
+            showWindow()
+            callPage("answerVideo")
         case "DECLINE":
             // Decline directly, so it works even while the window is hidden.
             if let id = userInfo["callId"] as? String { declineCall(id: id) }

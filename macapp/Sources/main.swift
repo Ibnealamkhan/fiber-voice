@@ -324,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 if self.ringingCallId != id {
                     self.ringingCallId = id
                     self.ringingNumber = call?["number"] as? String ?? "Unknown number"
-                    self.incomingCall(id: id, number: self.ringingNumber)
+                    self.incomingCall(id: id, number: self.ringingNumber, video: call?["offeredVideo"] as? Bool == true)
                 }
             } else if let id = self.ringingCallId {
                 self.ringingCallId = nil
@@ -368,14 +368,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         completionHandler([.banner, .list])
     }
 
-    func incomingCall(id: String, number: String) {
+    func incomingCall(id: String, number: String, video: Bool = false) {
         showWindow()
         NSApp.requestUserAttention(.criticalRequest)
         let content = UNMutableNotificationContent()
-        content.title = "Incoming call"
+        content.title = video ? "Incoming video call" : "Incoming call"
         content.body = displayName(for: number) ?? formatPhone(number)
         if displayName(for: number) != nil { content.subtitle = formatPhone(number) }
-        content.categoryIdentifier = "INCOMING_CALL"
+        content.categoryIdentifier = video ? "INCOMING_VIDEO_CALL" : "INCOMING_CALL"
         content.userInfo = ["callId": id, "number": number]
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: "incoming-call", content: content, trigger: nil))
@@ -402,8 +402,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        // The macOS microphone prompt (TCC) still asks the user the first time.
-        decisionHandler(isGatewayOrigin(origin) && type == .microphone ? .grant : .deny)
+        // The macOS microphone/camera prompts (TCC) still ask the user the first time.
+        decisionHandler(isGatewayOrigin(origin) ? .grant : .deny)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,

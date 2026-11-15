@@ -157,7 +157,7 @@ async def local_only(request, handler):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['Content-Security-Policy'] = "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'"
-    response.headers['Permissions-Policy'] = 'microphone=(self), camera=()'
+    response.headers['Permissions-Policy'] = 'microphone=(self), camera=(self)'
     return response
 
 
@@ -197,10 +197,15 @@ async def call_peer(app, call, body):
     pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     call.peer = pc
 
+    video = getattr(call.media, 'video', None)
+
     @pc.on('track')
     def track_received(track):
         if track.kind == 'audio':
-            call.media.spawn(call.media.attach(track))
+            call.browser_track = track
+            call.attach_task = call.media.spawn(call.media.attach(track))
+        elif track.kind == 'video' and video:
+            video.spawn(video.attach(track))
 
     @pc.on('connectionstatechange')
     async def changed():
@@ -210,14 +215,20 @@ async def call_peer(app, call, body):
                 call.spawn(app[CALLS].invite(call))
             elif call.state == 'incoming':
                 call.spawn(app[CALLS].answer(call))
-        elif pc.connectionState in ('failed', 'closed') and call.state in LIVE:
-            call.spawn(app[CALLS].hangup(call))
+        elif pc.connectionState in ('failed', 'closed'):
+            # The browser leg may have moved to a conference call; hang up whichever call owns it now.
+            owner = next((c for c in list(app[CALLS].dialogs.values()) if c.peer is pc and c.state in LIVE), None)
+            if owner:
+                owner.spawn(app[CALLS].hangup(owner))
 
     pc.addTrack(call.media.track)
+    if video:
+        pc.addTrack(video.track)
+    allowed = {'audio', 'video'} if video else {'audio'}
     try:
         await pc.setRemoteDescription(RTCSessionDescription(sdp=body['sdp'], type='offer'))
-        if not pc.getTransceivers() or any(t.kind != 'audio' for t in pc.getTransceivers()):
-            raise ValueError('Only audio is supported')
+        if not pc.getTransceivers() or any(t.kind not in allowed for t in pc.getTransceivers()):
+            raise ValueError('Unsupported browser media for this call')
         await pc.setLocalDescription(await pc.createAnswer())
     except Exception:
         await app[CALLS].finish(call, 'failed', 'Could not negotiate browser audio')
@@ -235,7 +246,7 @@ async def create_call(request):
     if body.get('type') != 'offer' or not isinstance(body.get('sdp'), str):
         raise web.HTTPBadRequest(text='Expected a WebRTC audio offer')
     try:
-        call = await request.app[CALLS].prepare_outgoing(body.get('number', ''))
+        call = await request.app[CALLS].prepare_outgoing(body.get('number', ''), video=body.get('video') is True)
         answer = await call_peer(request.app, call, body)
         return web.json_response(answer)
     except ValueError as error:
@@ -259,8 +270,10 @@ async def answer_call(request):
         raise web.HTTPConflict(text='No incoming call ready to answer')
     if call.peer:
         raise web.HTTPConflict(text='Browser audio is already connecting')
+    body = await json_object(request)
+    await request.app[CALLS].choose_video(call, body.get('video') is True)
     try:
-        return web.json_response(await call_peer(request.app, call, await json_object(request)))
+        return web.json_response(await call_peer(request.app, call, body))
     except ValueError as error:
         raise web.HTTPBadRequest(text=str(error))
 
@@ -268,6 +281,22 @@ async def answer_call(request):
 async def end_call(request):
     call = selected_call(request)
     await request.app[CALLS].hangup(call)
+    return web.json_response(call.public())
+
+
+async def add_participant(request):
+    call = selected_call(request)
+    body = await json_object(request)
+    try:
+        conf = await request.app[CALLS].add_participant(call, body.get('number', ''))
+    except ValueError as error:
+        raise web.HTTPConflict(text=str(error))
+    return web.json_response(conf.public())
+
+
+async def cancel_participant(request):
+    call = selected_call(request)
+    await request.app[CALLS].cancel_add(call)
     return web.json_response(call.public())
 
 
@@ -557,6 +586,8 @@ def create_app(registration=None, onboarding=None):
     app.router.add_post('/api/calls', create_call)
     app.router.add_post('/api/calls/{id}/answer', answer_call)
     app.router.add_post('/api/calls/{id}/dtmf', dtmf_call)
+    app.router.add_post('/api/calls/{id}/participants', add_participant)
+    app.router.add_post('/api/calls/{id}/participants/cancel', cancel_participant)
     app.router.add_delete('/api/calls/{id}', end_call)
     app.router.add_post('/api/audio/offer', offer)
     app.router.add_delete('/api/audio/{id}', stop)

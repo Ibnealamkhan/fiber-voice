@@ -70,6 +70,8 @@ class AmrCodec:
         self.last_frame = bytes([15 << 3 | 4])
 
     def encode(self, pcm):
+        if not self.encoder:
+            raise ValueError('AMR encoder is closed')
         if len(pcm) != self.samples * 2 or not 0 <= self.mode <= (8 if self.wideband else 7):
             raise ValueError(f'Invalid AMR input frame: {len(pcm)} PCM bytes, expected {self.samples*2}, mode {self.mode}')
         speech = (C.c_short * self.samples).from_buffer_copy(pcm)
@@ -80,6 +82,8 @@ class AmrCodec:
         return bytes(out[:length])
 
     def decode(self, frame=None):
+        if not self.decoder:
+            return bytes(self.samples * 2)  # closed: never hand a freed decoder to native code
         lost = frame is None
         frame = self.last_frame if lost else frame
         ft = frame[0] >> 3 & 15
@@ -190,6 +194,23 @@ def parse_rtp(packet):
     return packet[1] & 127, seq, timestamp, ssrc, packet[pos:end]
 
 
+def media_sections(sdp):
+    """Split SDP into (session_lines, [(kind, port, protocol, fmts, lines)]) preserving order."""
+    session, sections, current = [], [], None
+    for line in sdp.replace('\r', '').split('\n'):
+        if not line:
+            continue
+        if line.startswith('m='):
+            fields = line[2:].split()
+            current = (fields[0], int(fields[1].split('/')[0]), fields[2], fields[3:], [line])
+            sections.append(current)
+        elif current is None:
+            session.append(line)
+        else:
+            current[4].append(line)
+    return session, sections
+
+
 def parse_sdp(sdp, require_offered=True):
     if len(sdp) > 65536:
         raise ValueError('SDP too large')
@@ -264,6 +285,9 @@ class ReturnAudio(AudioStreamTrack):
         loop = asyncio.get_running_loop()
         if self.started is None: self.started = loop.time()
         await asyncio.sleep(max(0, self.started + self.pts/48000 - loop.time()))
+        if self.readyState != 'live' or self.media.closed:
+            from aiortc.mediastreams import MediaStreamError
+            raise MediaStreamError  # the call ended while we waited for the next frame
         pcm = self.media.receive_pcm()
         # Speech sample rates divide 48 kHz exactly. PyAV handles interpolation.
         source = av.AudioFrame(format='s16', layout='mono', samples=len(pcm)//2)
@@ -321,6 +345,8 @@ class MediaSession:
         self.payload_octets_sent = 0
         self.error = None
         self.on_error = None
+        self.video = None  # optional VideoSession for video calls
+        self.layout = None  # media sections of the last remote SDP, for answers
 
     async def open(self):
         loop = asyncio.get_running_loop()
@@ -340,7 +366,7 @@ class MediaSession:
                 for sock in sockets: sock.close()
         raise RuntimeError('No free local RTP/RTCP ports in 52000–52200')
 
-    def sdp(self, answer=False):
+    def sdp(self, answer=False, direction=None):
         if answer and not self.remote: raise ValueError('No remote audio offer')
         self.version += 1
         codec_pts = list(OFFER_CODECS) if not answer else [self.remote['pt']]
@@ -349,7 +375,7 @@ class MediaSession:
                  's=Fiber voice',f'c=IN IP6 {self.local_address}','t=0 0',
                  f'm=audio {self.port} RTP/AVP ' + ' '.join(map(str, codec_pts+events)),
                  f'a=rtcp:{self.port+1} IN IP6 {self.local_address}', 'a=ptime:20', 'a=maxptime:200']
-        direction = self.remote['direction'] if answer else 'sendrecv'
+        direction = direction or (self.remote['direction'] if answer else 'sendrecv')
         lines.append('a=' + {'sendonly':'recvonly','recvonly':'sendonly'}.get(direction,direction))
         for pt in codec_pts:
             name, aligned = OFFER_CODECS[pt] if not answer else (self.remote['codec'],self.remote['octetAlign'])
@@ -358,6 +384,19 @@ class MediaSession:
         for pt in events:
             rate = (16000 if pt==127 else 8000) if not answer else self.remote['rate']
             lines += [f'a=rtpmap:{pt} telephone-event/{rate}',f'a=fmtp:{pt} 0-15']
+        session, audio = lines[:5], lines[5:]
+        if not answer:
+            lines = session + audio + ((self.video.sdp_lines() or []) if self.video else [])
+        else:
+            # An answer must mirror the offer's media sections, in order; decline what we don't use.
+            lines = list(session)
+            for kind, protocol, first_fmt in self.layout or [('audio', 'RTP/AVP', '0')]:
+                if kind == 'audio' and audio:
+                    lines += audio; audio = None
+                elif kind == 'video' and self.video and self.video.remote:
+                    lines += self.video.sdp_lines(answer=True)
+                else:
+                    lines.append(f'm={kind} 0 {protocol} {first_fmt}')
         return '\r\n'.join(lines)+'\r\n'
 
     def negotiate(self, sdp, incoming=False):
@@ -374,6 +413,9 @@ class MediaSession:
                 self.return_fifo = av.AudioFifo()
         self.remote = remote
         self.target_mode = remote['mode']
+        self.layout = [(kind, protocol, fmts[0] if fmts else '0') for kind, _, protocol, fmts, _ in media_sections(sdp)[1]]
+        if self.video:
+            self.video.negotiate(sdp)
         if not any(getattr(task, '_fiber_sender', False) for task in self.tasks):
             task = self.spawn(self.send_audio()); task._fiber_sender = True
             self.spawn(self.send_reports())
@@ -472,7 +514,7 @@ class MediaSession:
         except (ValueError,IndexError,struct.error): self.counters['invalidPackets']+=1
 
     def receive_pcm(self):
-        if not self.codec:return bytes(self.rate//50*2)
+        if not self.codec or self.closed:return bytes(self.rate//50*2)
         if self.play_timestamp is None:
             if not self.frames or time.monotonic()-self.first_arrival<.06:return bytes(self.codec.samples*2)
             self.play_timestamp=min(self.frames)
@@ -509,7 +551,7 @@ class MediaSession:
             await asyncio.sleep(.02)
 
     def stats(self):
-        return {**self.counters,'codec':self.remote['codec'] if self.remote else None,
+        return {**self.counters, 'video': self.video.stats() if self.video else None,'codec':self.remote['codec'] if self.remote else None,
                 'error':self.error,
                 'packetization':('octet-aligned' if self.remote['octetAlign'] else 'bandwidth-efficient') if self.remote else None}
 
@@ -523,3 +565,4 @@ class MediaSession:
         if self.rtp:self.rtp.close()
         if self.rtcp:self.rtcp.close()
         if self.codec:self.codec.close()
+        if self.video:await self.video.close()

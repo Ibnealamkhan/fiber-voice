@@ -1,11 +1,13 @@
 """Single-call SIP dialog controller over the gateway's authenticated TLS flow."""
 import asyncio
 import re
+from urllib.parse import quote
 import secrets
 import time
 from dataclasses import dataclass, field
 
 from media import MediaSession, codec_capabilities
+from video import VideoSession, parse_video
 from registration import first, digest_authorization, digest_parameters
 
 LIVE = {'dialing','ringing','early_media','incoming','answering','active','ending'}
@@ -52,6 +54,15 @@ TRACE_HEADERS=('reason','warning','server','retry-after','p-asserted-identity','
 def masked(text):
     """Hide phone numbers in diagnostic logs, keeping the last 4 digits."""
     return re.sub(r'\+?\d{6,}',lambda m:('+' if m[0][0]=='+' else '')+'…'+m[0][-4:]+f'({len(m[0].lstrip("+"))} digits)',text)
+
+
+def network_identity(headers):
+    """The party's network identity from P-Asserted-Identity, preferring a SIP URI (it can carry ?Replaces)."""
+    uris=[]
+    for value in headers.get('p-asserted-identity',[]):
+        for match in re.finditer(r'<([^>]+)>',value) if '<' in value else [re.match(r'\s*(\S+)',value)]:
+            if match and re.fullmatch(r'(sips?|tel):[^\s<>]+',match[1]):uris.append(match[1])
+    return next((u for u in uris if u.startswith('sip')),uris[0] if uris else '')
 
 
 def uri_from(value):
@@ -117,6 +128,16 @@ class Call:
     failure_cause: int|None=None
     trace: list=field(default_factory=list)
     early_tags: set=field(default_factory=set)
+    video: bool=False
+    offered_video: bool=False
+    conference: bool=False
+    participants: list=field(default_factory=list)
+    refers: dict=field(default_factory=dict)
+    previous: object=None
+    remote_identity: str=''
+    adding: object=None
+    browser_track: object=None
+    attach_task: object=None
     screened: str|None=None
 
     def spawn(self,coroutine):
@@ -128,6 +149,10 @@ class Call:
         return {'id':self.id,'direction':self.direction,'number':self.number,'state':self.state,
                 'error':self.error,'sipCode':self.last_sip,'createdAt':self.created,
                 'connectedAt':self.connected,'endedAt':self.ended,
+                'videoRequested':self.video,'offeredVideo':self.offered_video,
+                'conference':self.conference,'adding':bool(self.adding and self.adding.state in LIVE),
+                'participants':[{k:p.get(k) for k in ('number','status','error')} for p in self.participants],
+                'videoActive':bool(self.media and getattr(self.media,'video',None) and self.media.video.active),
                 'media':self.media.stats() if self.media else None}
 
 
@@ -141,6 +166,7 @@ class Calls:
         self.dialogs={}
         self.background=set()
         self.lock=asyncio.Lock()
+        self.conference_lock=asyncio.Lock()
         self.capabilities=codec_capabilities()
         registration.call_handler=self
 
@@ -148,27 +174,39 @@ class Calls:
         return {'available':self.registration.status()['registered'] and self.capabilities['ready'],
                 'codecs':self.capabilities,'call':self.current.public() if self.current else None}
 
-    async def new_media(self):
+    async def new_media(self,video=False):
         local=self.registration.writer.get_extra_info('sockname')[0]
         media=self.media_factory(local)
-        try:return await media.open()
+        try:
+            await media.open()
+            if video:media.video=await VideoSession(local).open()
+            return media
         except BaseException:
             await media.close()
             raise
 
-    async def prepare_outgoing(self,number):
+    def contact(self,call):
+        # Video calls carry the RFC 3840 video feature tag, as Jio's own client does.
+        return self.registration.contact+(';video' if call.video else '')
+
+    async def prepare_outgoing(self,number,video=False):
         async with self.lock:
             if not self.status()['available']:raise ValueError('Registration and native AMR codecs must be ready')
             if self.current and self.current.state in LIVE:raise ValueError('Another call is in progress')
-            uri=number_uri(number,self.registration.config['domain'])
-            call=Call(secrets.token_urlsafe(18),secrets.token_hex(16)+'@fiber-gateway','outgoing',str(number),uri)
-            call.local_from=f'<{self.registration.config["publicIdentity"]}>;tag={call.local_tag}'
-            call.remote_to='<'+uri+'>'
-            call.media=await self.new_media()
+            call=self.outgoing_call(number)
+            call.video=bool(video)
+            call.media=await self.new_media(call.video)
             call.media.on_error=lambda error:call.spawn(self.media_failed(call,error))
             self.current=call
             self.remember(call)
             return call
+
+    def outgoing_call(self,number):
+        uri=number_uri(number,self.registration.config['domain'])
+        call=Call(secrets.token_urlsafe(18),secrets.token_hex(16)+'@fiber-gateway','outgoing',str(number),uri)
+        call.local_from=f'<{self.registration.config["publicIdentity"]}>;tag={call.local_tag}'
+        call.remote_to='<'+uri+'>'
+        return call
 
     def remember(self,call):
         self.dialogs[call.sip_id]=call
@@ -205,12 +243,13 @@ class Calls:
                'Max-Forwards: 70','From: '+call.local_from,'To: '+to,
                'Call-ID: '+call.sip_id,f'CSeq: {sequence} {method}']
         lines += ['Route: '+r for r in routes]
-        if method not in ('ACK','CANCEL'):lines += ['Contact: '+self.registration.contact]
+        if method not in ('ACK','CANCEL'):lines += ['Contact: '+self.contact(call)]
         lines += ['User-Agent: FiberGateway/0.2','X-Client: JSE']
         if method=='INVITE':
             lines += ['Supported: 100rel, timer, replaces','Allow: INVITE, ACK, CANCEL, BYE, OPTIONS, PRACK, UPDATE, INFO',
                       'P-Preferred-Identity: <'+self.registration.config['publicIdentity']+'>',
                       'P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel',
+                      *(['Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";video'] if call.video else []),
                       'Session-Expires: 1800;refresher=uac','Min-SE: 90']
         if call.auth and authenticate and method not in ('ACK','CANCEL'):
             name,challenge=call.auth;call.nonce_count+=1
@@ -275,6 +314,7 @@ class Calls:
                 await self.finish(call,'failed',f'{message} (SIP {code}'+(f', cause {cause}' if cause else '')+')')
                 return
             call.remote_to=first(headers,'to',call.remote_to);call.remote_tag=tag_from(call.remote_to)
+            call.remote_identity=network_identity(headers) or call.remote_identity
             call.target=uri_from(first(headers,'contact',call.target))
             call.routes=list(reversed(headers.get('record-route',[])))
             # ACK even when the SDP is unsupported, then tear down the accepted dialog.
@@ -293,6 +333,12 @@ class Calls:
             if call.cancel_requested:
                 await self.bye(call);await self.finish(call,'cancelled');return
             call.state='active';call.connected=time.time()
+            if call.video:
+                video=getattr(call.media,'video',None)
+                remote=video.remote if video else None
+                print(f'Video call to …{call.number[-4:]} connected: '+(f"network video {remote['width']}x{remote['height']} H.264 pt {remote['pt']} {remote['direction']}" if remote else 'network declined video (voice only)'),flush=True)
+                if not remote:
+                    for line in call.trace:print('  '+line,flush=True)
             self.schedule_session_timer(call,headers)
         except asyncio.CancelledError:
             raise
@@ -315,6 +361,7 @@ class Calls:
         # UPDATE/INFO/OPTIONS inside it while the phone is still ringing.
         tag=tag_from(first(headers,'to'))
         if tag:call.early_tags.add(tag)
+        if not call.remote_identity:call.remote_identity=network_identity(headers)
         if code==180 and not call.cancel_requested:call.state='ringing'
         if code in (180,183) and body and not call.cancel_requested:
             try:call.media.negotiate(body.decode());call.state='early_media'
@@ -380,6 +427,7 @@ class Calls:
             number=from_uri.split(':',1)[1].split('@')[0]
             call=Call(secrets.token_urlsafe(18),sip_id,'incoming',number,from_uri,state='incoming')
             call.incoming_headers=headers;call.remote_to=first(headers,'from');call.remote_tag=tag_from(call.remote_to)
+            call.remote_identity=network_identity(headers)
             call.local_from=first(headers,'to')+';tag='+call.local_tag
             call.target=uri_from(first(headers,'contact',from_uri));call.routes=headers.get('record-route',[])[:]
             call.invite_cseq=int(first(headers,'cseq').split()[0])
@@ -416,6 +464,9 @@ class Calls:
         if method=='BYE':
             await self.registration._send(response_message(headers,200,'OK',call.local_tag))
             await self.finish(call,'ended');return True
+        if method=='NOTIFY' and call.conference:
+            self.refer_notify(call,headers,body)
+            await self.registration._send(response_message(headers,200,'OK',call.local_tag));return True
         if method in ('INFO','OPTIONS','NOTIFY'):
             await self.registration._send(response_message(headers,200,'OK',call.local_tag));return True
         if method=='UPDATE' and early and call.state in ('dialing','ringing','early_media','ending'):
@@ -458,7 +509,8 @@ class Calls:
     async def prepare_incoming(self,call,body):
         try:
             if not self.capabilities['ready'] or not body:raise ValueError('Incoming call requires an AMR SDP offer')
-            call.media=await self.new_media()
+            call.offered_video=parse_video(body.decode()) is not None
+            call.media=await self.new_media(call.offered_video)
             call.media.on_error=lambda error:call.spawn(self.media_failed(call,error))
             call.media.negotiate(body.decode(),incoming=True)
             call.last_response=response_message(call.incoming_headers,180,'Ringing',call.local_tag,['Contact: '+self.registration.contact])
@@ -470,11 +522,18 @@ class Calls:
             await self.registration._send(response_message(call.incoming_headers,488,'Not Acceptable Here',call.local_tag))
             await self.finish(call,'failed',str(error))
 
+    async def choose_video(self,call,with_video):
+        """Before answering an incoming call: keep its offered video, or answer voice-only."""
+        call.video=bool(with_video and call.offered_video and call.media.video)
+        if not call.video and call.media.video:
+            video,call.media.video=call.media.video,None
+            await video.close()
+
     async def answer(self,call):
         if call is not self.current or call.state!='incoming' or not call.media:raise ValueError('No incoming call ready to answer')
         call.state='answering'
         call.answered_sdp=call.media.sdp(answer=True)
-        call.last_response=response_message(call.incoming_headers,200,'OK',call.local_tag,['Contact: '+self.registration.contact],call.answered_sdp)
+        call.last_response=response_message(call.incoming_headers,200,'OK',call.local_tag,['Contact: '+self.contact(call)],call.answered_sdp)
         await self.registration._send(call.last_response)
         call.spawn(self.wait_ack(call))
 
@@ -544,15 +603,19 @@ class Calls:
     async def finish(self,call,state,error=None):
         if call.ended:return
         call.state=state;call.error=error;call.ended=time.time()
-        if self.history:
+        if call.conference and call.adding and call.adding.state in LIVE:
+            print(f'Conference ended ({state}) while …{call.adding.number[-4:]} was being added',flush=True)
+            self.spawn(self.hangup(call.adding))
+        if self.history and not call.conference:
             try:self.history.add(call)
             except Exception:pass
         current=asyncio.current_task()
         tasks=[t for t in call.tasks if t is not current]
         for task in tasks:task.cancel()
         await asyncio.gather(*tasks,return_exceptions=True)
-        if call.media:await call.media.close()
+        # Stop the browser leg first so nothing asks the media for audio while it closes.
         if call.peer:await call.peer.close()
+        if call.media:await call.media.close()
 
     async def disconnected(self):
         if self.current and self.current.state in LIVE:
@@ -565,6 +628,212 @@ class Calls:
             call.cancel_requested=True
             await self.send_cancel(call)
         await self.finish(call,'failed','Audio bridge failed: '+error)
+
+    # ---- Conference calls (3GPP TS 24.147: conference factory + REFER) ----
+
+    def factory_uri(self):
+        cfg=self.registration.config
+        return cfg.get('conferenceFactory') or f"sip:mmtel@conf-factory.{cfg['domain']}"
+
+    async def move_audio(self,source,target):
+        """Re-wire the browser's WebRTC audio from one SIP call's media to another's."""
+        pc=source.peer
+        target.peer,source.peer=pc,None
+        if source.attach_task:source.attach_task.cancel()
+        target.browser_track,source.browser_track=source.browser_track,None
+        if target.browser_track:target.attach_task=target.media.spawn(target.media.attach(target.browser_track))
+        if pc:
+            for sender in pc.getSenders():
+                if sender.track and sender.track.kind=='audio':sender.replaceTrack(target.media.track)
+
+    def international(self,call=None,number=None):
+        """+91… form of a party's number, from its network identity or the digits dialled."""
+        for value in ((call.remote_identity,call.number,uri_from(call.remote_to)) if call else ())+((number,) if number else ()):
+            digits=re.sub(r'[^\d+]','',str(value or '').split(':',1)[-1].split('@',1)[0].split(';',1)[0])
+            bare=digits.lstrip('+')
+            if digits.startswith('+') and len(bare)>=8:return digits
+            if len(bare)==12 and bare.startswith('91'):return '+'+bare
+            if len(bare)==11 and bare.startswith('0'):return '+91'+bare[1:]
+            if len(bare)==10:return '+91'+bare
+        return None
+
+    def jio_target(self,number):
+        # Exactly the Refer-To Jio's own client builds (VvmSession::initiateInDialogRefer):
+        # tel:+91… -> sip:+91…@<home domain>;user=phone, then ;method=INVITE.
+        return f"sip:{number}@{self.registration.config['domain']};user=phone;method=INVITE"
+
+    def replaces_targets(self,call):
+        """Refer-To candidates for moving `call` into a conference, best first."""
+        # RFC 3891: to-tag is the other party's tag, from-tag is ours.
+        replaces='?Replaces='+quote(f'{call.sip_id};to-tag={call.remote_tag};from-tag={call.local_tag}',safe='')
+        number=self.international(call)
+        uris=([self.jio_target(number)] if number else [])+[u for u in (call.remote_identity,uri_from(call.remote_to)) if u and u.startswith('sip')]
+        return [u+replaces for u in dict.fromkeys(uris)]
+
+    async def hold(self,call,direction='sendonly'):
+        """Hold (a=sendonly) or resume (a=sendrecv) a call with a re-INVITE, as Jio's client does around merges."""
+        body=call.media.sdp(direction=direction)
+        code,headers,answer=await self.authenticated(call,'INVITE',body)
+        seq=first(headers,'cseq').split()[0]
+        if 200<=code<300 and seq.isdigit():
+            ack,_,_=self.request(call,'ACK',sequence=int(seq),authenticate=False)
+            await self.registration._send(ack)
+            if answer:
+                try:call.media.negotiate(answer.decode())
+                except Exception:pass
+        print(f"{'Hold' if direction=='sendonly' else 'Resume'} {'conference' if call.conference else 'call'}: SIP {code}",flush=True)
+        return 200<=code<300
+
+    async def add_participant(self,call,number):
+        """Add someone to a connected call; the first time, turn the call into a network conference."""
+        async with self.conference_lock:
+            if call is not self.current or call.state!='active':raise ValueError('Add people during a connected call')
+            if getattr(call.media,'video',None):raise ValueError('Conference calls are voice only')
+            number_uri(number,self.registration.config['domain'])  # validates the number
+            if call.conference and call.adding and call.adding.state in LIVE:
+                raise ValueError('Wait until the person you are adding answers')
+            conf=call if call.conference else await self.start_conference(call)
+            if len([p for p in conf.participants if p['status']!='failed'])>=6:
+                raise ValueError('A conference can have up to 6 people besides you')
+            # Retrying a number replaces its earlier failed attempt.
+            digits=re.sub(r'\D','',str(number))[-10:]
+            conf.participants=[p for p in conf.participants if not (p['status']=='failed' and re.sub(r'\D','',p['number'])[-10:]==digits)]
+            participant={'number':str(number),'status':'calling','error':None}
+            conf.participants.append(participant)
+            side=self.outgoing_call(number)
+            side.media=await self.new_media()
+            side.media.on_error=lambda error:side.spawn(self.media_failed(side,error))
+            self.remember(side);conf.adding=side
+            conf.spawn(self.dial_into_conference(conf,participant,side))
+            return conf
+
+    async def dial_into_conference(self,conf,participant,side):
+        """Phone-style add: hold the conference, call the person, then merge their call in (REFER + Replaces).
+
+        Jio's router only merges calls that already exist; it rejects a REFER that asks it to dial someone."""
+        try:
+            await self.hold(conf)
+            await self.move_audio(conf,side)  # hear it ring and greet them
+            side.invite_started=True
+            watcher=asyncio.create_task(self.mirror_status(side,participant))
+            print(f'Adding …{side.number[-4:]} to conference: calling',flush=True)
+            await self.invite(side)
+            watcher.cancel()
+            print(f'Adding …{side.number[-4:]}: call {side.state}'+(f' ({side.error})' if side.error else '')+f', SIP {side.last_sip}',flush=True)
+            for line in side.trace[-6:]:print('  '+line,flush=True)
+            if side.state!='active':
+                participant.update(status='failed',error=(side.error or ('Stopped' if side.cancel_requested else 'No answer')).split(' (SIP')[0])
+                return
+            participant['status']='joining'
+            await self.move_audio(side,conf)
+            print(f'Adding …{side.number[-4:]}: answered, merging into the conference',flush=True)
+            if not await self.refer_existing(conf,participant,side):
+                participant.update(status='failed',error='Could not merge them into the conference')
+                await self.hangup(side)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            participant.update(status='failed',error=str(error) or 'Could not add them')
+            if side.state in LIVE:await self.hangup(side)
+        finally:
+            if side.peer is not None and conf.state=='active':await self.move_audio(side,conf)
+            conf.adding=None
+            if conf.state=='active':
+                try:await self.hold(conf,'sendrecv')
+                except Exception:pass
+
+    async def mirror_status(self,side,participant):
+        while side.state in LIVE and participant['status'] in ('calling','ringing'):
+            participant['status']='ringing' if side.state in ('ringing','early_media') else 'calling'
+            await asyncio.sleep(0.25)
+
+    async def refer_existing(self,conf,participant,call):
+        """Move an existing call into the conference, trying Refer-To forms best first."""
+        for target in self.replaces_targets(call):
+            participant['status']='joining';participant['error']=None
+            try:
+                await self.refer(conf,participant,target)
+                return True
+            except Exception:
+                continue
+        return False
+
+    async def cancel_add(self,conf):
+        if conf.adding and conf.adding.state in LIVE:
+            print(f'Adding …{conf.adding.number[-4:]}: stopped by you',flush=True)
+            await self.hangup(conf.adding)
+
+    async def start_conference(self,call):
+        cfg=self.registration.config
+        factory=self.factory_uri()
+        conf=Call(secrets.token_urlsafe(18),secrets.token_hex(16)+'@fiber-gateway','outgoing','Conference',factory)
+        conf.conference=True;conf.previous=call;conf.invite_started=True
+        conf.local_from=f'<{cfg["publicIdentity"]}>;tag={conf.local_tag}';conf.remote_to='<'+factory+'>'
+        conf.media=await self.new_media()
+        conf.media.on_error=lambda error:conf.spawn(self.media_failed(conf,error))
+        conf.participants=[{'number':call.number,'status':'joining','error':None,'replaces':True}]
+        self.current=conf;self.remember(conf)
+        await self.invite(conf)
+        if conf.state!='active':
+            self.current=call
+            print(f'Conference factory refused: {conf.error}',flush=True)
+            for line in conf.trace:print('  '+line,flush=True)
+            raise ValueError('Could not start a conference: '+(conf.error or 'no answer'))
+        await self.move_audio(call,conf)
+        print(f'Conference focus: {masked(conf.target)}',flush=True)
+        targets=self.replaces_targets(call)
+        plan=[(t,False) for t in targets]+([(targets[0],True)] if targets else [])
+        error=None
+        for target,hold_first in plan:
+            if hold_first and not await self.hold(call):break
+            conf.participants[0].update(status='joining',error=None)
+            try:
+                await self.refer(conf,conf.participants[0],target)
+                return conf
+            except Exception as failure:
+                error=failure
+        await self.restore_call(conf,f'Could not move the call into the conference ({error})')
+        raise ValueError('Could not move this call into a conference')
+
+    async def refer(self,conf,participant,target):
+        extra=[f'Refer-To: <{target}>',f'Referred-By: <{self.registration.config["publicIdentity"]}>']
+        code,headers,_=await self.authenticated(conf,'REFER',extra=extra)
+        if not 200<=code<300:
+            # Diagnostic log with numbers masked: what we asked for and how the server answered.
+            details=' | '.join(f'{name}: {value}' for name in ('reason','warning','server','retry-after','allow','supported','require') for value in headers.get(name,[]))
+            print(f'REFER refused: SIP {code}'+(f' | {details}' if details else ''),flush=True)
+            print(f'  Refer-To: {masked(target)}',flush=True)
+            participant.update(status='failed',error=SIP_TEXT.get(code) or f'Not added (SIP {code})')
+            raise ValueError(f'REFER rejected with SIP {code}')
+        seq=first(headers,'cseq').split()[0]
+        if seq.isdigit():conf.refers[int(seq)]=participant
+
+    def refer_notify(self,conf,headers,body):
+        match=re.match(r'\s*refer\b(?:.*?;\s*id\s*=\s*(\d+))?',first(headers,'event'),re.I)
+        frag=re.match(r'\s*SIP/2\.0\s+(\d{3})',body.decode(errors='replace'))
+        if not match or not frag:return
+        participant=conf.refers.get(int(match[1])) if match[1] else next((p for p in reversed(conf.participants) if p['status'] not in ('joined','failed')),None)
+        if not participant:return
+        code=int(frag[1])
+        if code<180:participant['status']='calling' if not participant.get('replaces') else 'joining'
+        elif code<200:participant['status']='ringing'
+        elif code<300:participant.update(status='joined',error=None)
+        else:
+            participant.update(status='failed',error=SIP_TEXT.get(code) or f'Could not join (SIP {code})')
+            if participant.get('replaces'):
+                conf.spawn(self.restore_call(conf,'The other person could not be moved into the conference'))
+
+    async def restore_call(self,conf,reason):
+        """Undo a conference that could not take over the original call."""
+        call=conf.previous
+        print(f'Conference cancelled: {reason}',flush=True)
+        restore=call is not None and call.state=='active'
+        if restore:await self.move_audio(conf,call)  # back to the original call's audio first
+        if conf.state in LIVE:
+            conf.state='ending';await self.bye(conf);await self.finish(conf,'ended')
+        if restore:
+            self.current=call
+            call.error=reason
 
     async def close(self):
         if self.current and self.current.state in LIVE:

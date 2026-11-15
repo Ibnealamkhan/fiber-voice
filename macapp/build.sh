@@ -105,6 +105,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSSupportsSuddenTermination</key><false/>
   <key>NSContactsUsageDescription</key><string>$NAME shows names from your Contacts in your call log and on incoming calls. Contacts stay on this Mac.</string>
+  <key>NSCameraUsageDescription</key><string>$NAME uses the camera for video calls on your landline.</string>
   <key>NSMicrophoneUsageDescription</key><string>$NAME uses the microphone for your landline calls.</string>
   <key>NSLocalNetworkUsageDescription</key><string>$NAME connects to your JioFiber router to place and receive landline calls.</string>
   <key>NSBonjourServices</key><array/>

@@ -52,6 +52,10 @@ def parse_config(xml, certificate_sha256):
               'realm': credentials['realm'], 'proxyHost': endpoint.hostname,
               'proxyPort': endpoint.port or 5061,
               'instanceId': data.get('uuid_value', ''),
+              'conferenceFactory': next((p.get('value') for p in root.iter('parm')
+                                         if p.get('name') in ('factory', 'conf-fcty-uri', 'conference_factory_uri')
+                                         and re.fullmatch(r'sips?:[^\s<>@]+@[^\s<>]+', p.get('value', ''))
+                                         and 'foo@bar' not in p.get('value', '')), ''),
               'certificateSha256': certificate_sha256, 'expires': 3600}
     for key in ['publicIdentity', 'domain', 'username', 'password', 'realm', 'proxyHost']:
         if not config[key] or any(c in config[key] for c in '\r\n'):

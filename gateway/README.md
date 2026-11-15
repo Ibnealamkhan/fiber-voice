@@ -28,7 +28,9 @@ Open <http://127.0.0.1:8765/>. Press Ctrl+C to stop; the gateway deregisters onl
 | `onboarding.py` | First-run setup: router certificate pinning, OTP authorization, provisioning |
 | `registration.py` | SIP Digest REGISTER over IPv6/TLS with renewal, reconnection and pin checks |
 | `calls.py` | One-call SIP dialog controller: INVITE/PRACK/ACK/CANCEL/BYE/UPDATE, early dialogs, failure reasons |
-| `media.py` | AMR/AMR-WB codecs (ctypes), RFC 4867 framing, RTP/RTCP, jitter buffer, RFC 4733 DTMF |
+| `media.py` | AMR/AMR-WB codecs (ctypes), RFC 4867 framing, RTP/RTCP, jitter buffer, RFC 4733 DTMF, SDP answers mirroring the offer |
+| `calls.py` (conference) | Network conferences: INVITE to the conference factory, REFER with `Replaces` to move the current call in, plain REFER to add people, progress from REFER NOTIFYs |
+| `video.py` | H.264 video bridge: RFC 6184 packetization mode 1 over RTP/AVPF, 640×480/320×240 at 15 fps, RTCP PLI keyframe requests |
 | `history.py` | Private call log with missed/blocked/silenced/unreachable results |
 | `contacts.py` | Names saved in the app and favourites |
 | `screening.py` | Block list and Do Not Disturb (manual, timed, nightly schedule, repeated callers) |
@@ -48,6 +50,7 @@ All endpoints reject foreign `Host`/`Origin` and cross-site requests.
 | `GET /api/setup`, `GET /api/setup/router` | Setup state; inspect the router certificate |
 | `POST /api/setup/trust`, `/otp`, `/verify`, `/reset` | Trust the router, request and verify the OTP, log out |
 | `GET /api/registration/status`, `POST /api/registration/retry` | SIP registration |
+| `POST /api/calls/{id}/participants` | Add someone (turns the call into a conference the first time) |
 | `POST /api/calls`, `POST /api/calls/{id}/answer`, `POST /api/calls/{id}/dtmf`, `DELETE /api/calls/{id}`, `GET /api/calls/current` | Calls (a WebRTC offer goes in the body) |
 | `GET/DELETE /api/history`, `POST /api/history/seen`, `DELETE /api/history/{id}` | Call log |
 | `GET/PUT /api/contacts`, `PUT /api/favorites` | Saved names and favourites |
@@ -63,6 +66,15 @@ All endpoints reject foreign `Host`/`Origin` and cross-site requests.
 - **Early dialogs.** The network sends `UPDATE`/`INFO`/`OPTIONS` while the callee's phone is ringing. These must be accepted (200 OK, with an SDP answer for UPDATE). Rejecting them with 481 makes the network drop the call with 480 after a few seconds.
 - **Failed calls.** Q.850 causes from `Reason` headers and SIP codes are mapped to plain messages. A number-masked SIP trace (last 4 digits plus length) goes to stdout, which is the Mac app's `gateway.log`.
 - **Screening.** Blocked callers get `603 Decline`. Do Not Disturb answers `480 Temporarily Unavailable`, so this client stays silent while the line's other devices keep ringing.
+- **Conference.** The factory address comes from provisioning (`factory`), or `sip:mmtel@conf-factory.<domain>` if missing. The focus is the JioFiber router itself, which only merges calls that already exist. A REFER asking it to dial a new number gets 500. Adding someone therefore works like a phone:
+  1. The first time, INVITE the factory and move the current call in with `Refer-To: <sip:+91…@<domain>;user=phone;method=INVITE?Replaces=call-id;to-tag;from-tag>`. This is the exact form Jio's client builds in `VvmSession::initiateInDialogRefer`, and it's verified live.
+  2. Hold the conference leg (re-INVITE `a=sendonly`), call the new person, and on answer REFER their call in the same way.
+  3. Resume the conference leg.
+
+  All three steps are verified on a live call: two people merged and joined.
+
+  Browser audio follows whichever leg is active (`replaceTrack`). If the first move fails, audio returns to the original call.
+- **Video.** The offer is H.264 Constrained Baseline (`42c01f` at 640×480 and `42c00c` at 320×240), `packetization-mode=1`, `RTP/AVPF` with `nack pli` and `imageattr`, matching Jio's client. Video calls add the `;video` feature tag to Contact and an `Accept-Contact` header. Answers always mirror the offer's media lines: unused video is declined with port 0. Incoming video can be answered voice-only. This hasn't been verified against a live video call yet.
 - **Media.** The browser leg uses WebRTC ICE/DTLS-SRTP/Opus. The network leg uses AMR-WB or AMR, octet-aligned or bandwidth-efficient, over RTP/AVP on IPv6 ports 52000–52200.
 
 ## Tests

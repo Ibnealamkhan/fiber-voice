@@ -4,7 +4,7 @@ const $=id=>document.getElementById(id);
 const LIVE=new Set(['dialing','ringing','early_media','incoming','answering','active','ending']);
 const KEYS=[['1',''],['2','ABC'],['3','DEF'],['4','GHI'],['5','JKL'],['6','MNO'],['7','PQRS'],['8','TUV'],['9','WXYZ'],['*',''],['0','+'],['#','']];
 const ui={view:'calls',filter:'all',query:'',history:[],missed:0,selected:null,ready:false,call:null,reg:null,started:false,local:{},system:{},contactsStatus:'unavailable',blocked:[],dnd:{},people:[],numbers:{},favorites:[],contactSel:null,contactQuery:''};
-let peer,stream,sessionId,timer,currentCallId,connectionMode,starting=false,generation=0,polling=false,toastTimer;
+let peer,stream,sessionId,timer,currentCallId,connectionMode,starting=false,generation=0,polling=false,toastTimer,videoCall=false,videoHidden=false,videoDeclinedShown=null;
 
 const text=(id,value)=>{$(id).textContent=value;};
 function toast(message){
@@ -420,6 +420,7 @@ function numberChanged(){
   $('dial-hint').textContent=typed||'Type or paste a number · Return to call';
   $('dial-hint').classList.toggle('named',Boolean(typed));
   $('call-start').disabled=!ui.ready||starting||!clean($('number').value)||Boolean(ui.call&&LIVE.has(ui.call.state));
+  $('call-video').disabled=$('call-start').disabled;
 }
 function pressDigit(d){
   flashKey(d);
@@ -436,16 +437,17 @@ $('number').addEventListener('input',numberChanged);
 $('number').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();startCall();}});
 $('backspace').addEventListener('click',()=>{setNumber($('number').value.slice(0,-1));$('number').focus();});
 $('call-start').addEventListener('click',()=>startCall());
-function startCall(){
+function startCall(video=false){
   const number=$('number').value;
   if(!ui.ready){toast(ui.reg?.error||'Your landline is not connected yet.');return;}
   if(!/^\+?[0-9]{3,15}$/.test(number.replace(/[ ()-]/g,''))){toast('Enter a valid telephone number.');return;}
-  connectAudio('call','/api/calls',{number});
+  connectAudio('call','/api/calls',{number,video},video);
 }
+$('call-video').addEventListener('click',()=>startCall(true));
 
 // Desktop keyboard: type digits anywhere, Return calls, Escape hangs up.
 document.addEventListener('keydown',e=>{
-  if(document.body.classList.contains('needs-setup')||e.metaKey||e.ctrlKey||e.altKey||$('name-dialog').open)return;
+  if(document.body.classList.contains('needs-setup')||e.metaKey||e.ctrlKey||e.altKey||$('name-dialog').open||$('add-dialog').open)return;
   const typing=e.target.closest('input,textarea,[contenteditable]');
   const live=ui.call&&LIVE.has(ui.call.state);
   if(e.key==='Escape'){if(live)$('call-end').click();else if(!typing)setNumber('');return;}
@@ -455,7 +457,7 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Enter'&&!live&&$('number').value){e.preventDefault();startCall();}
 });
 document.addEventListener('paste',e=>{
-  if(e.target.closest('input,textarea')||document.body.classList.contains('needs-setup')||$('name-dialog').open)return;
+  if(e.target.closest('input,textarea')||document.body.classList.contains('needs-setup')||$('name-dialog').open||$('add-dialog').open)return;
   const value=(e.clipboardData?.getData('text')||'').replace(/[^\d+]/g,'');
   if(value&&!(ui.call&&LIVE.has(ui.call.state))){e.preventDefault();setNumber(value);}
 });
@@ -478,21 +480,123 @@ function renderCall(state){
   }
   const incoming=c.state==='incoming';
   $('incall').classList.toggle('ringing',incoming||c.state==='ringing'||c.state==='dialing');
-  const callerName=nameFor(c.number);
-  text('incall-number',callerName||formatNumber(c.number));
-  $('incall-sub').hidden=!callerName;text('incall-sub',callerName?formatNumber(c.number):'');
-  text('incall-state',(LABELS[c.state]||c.state)+(c.error?` · ${c.error}`:''));
-  if(c.state==='active'&&c.connectedAt){const s=Math.max(0,Math.floor(Date.now()/1000-c.connectedAt));text('incall-timer',`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`);}
-  else text('incall-timer','');
+  // A conference replaces the call the browser audio was attached to; follow it.
+  if(connectionMode==='call'&&currentCallId&&currentCallId!==c.id&&!incoming)currentCallId=c.id;
+  const callerName=c.conference?null:nameFor(c.number);
+  if(c.conference){
+    const inCall=c.participants.filter(p=>p.status==='joined').length;
+    text('incall-number','Conference call');$('incall-sub').hidden=false;
+    text('incall-sub',inCall?`You and ${inCall} other${inCall>1?'s':''}`:'Bringing everyone in…');
+  }else{
+    text('incall-number',callerName||formatNumber(c.number));
+    $('incall-sub').hidden=!callerName;text('incall-sub',callerName?formatNumber(c.number):'');
+  }
+  renderParticipants(c);
+  const label=incoming&&c.offeredVideo?'Incoming video call':(LABELS[c.state]||c.state);
+  text('incall-state',label+(c.error?` · ${c.error}`:''));
+  const clockText=c.state==='active'&&c.connectedAt?(()=>{const s=Math.max(0,Math.floor(Date.now()/1000-c.connectedAt));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;})():'';
+  text('incall-timer',clockText);
   $('call-answer').hidden=!incoming;$('call-answer').disabled=starting||Boolean(peer);
+  $('call-answer-video').hidden=!(incoming&&c.offeredVideo);$('call-answer-video').disabled=starting||Boolean(peer);
+  renderVideo(c,clockText,callerName);
   $('call-end').setAttribute('aria-label',incoming?'Decline':'Hang up');
   $('incall-controls').hidden=incoming;
   $('toggle-keypad').disabled=c.state!=='active';
+  $('call-add').hidden=!(c.state==='active'&&!c.videoRequested&&!c.videoActive);
+  $('call-add').disabled=Boolean(c.adding);
   if(c.state!=='active'){$('incall-keypad').hidden=true;$('toggle-keypad').setAttribute('aria-pressed','false');}
   const m=c.media;
   text('call-media',m?.codec?`${m.codec} · ${m.packetization||''}`:'');
 }
-$('call-answer').addEventListener('click',()=>{if(ui.call)connectAudio('call',`/api/calls/${ui.call.id}/answer`);});
+$('call-answer').addEventListener('click',()=>{if(ui.call)connectAudio('call',`/api/calls/${ui.call.id}/answer`,{video:false});});
+$('call-answer-video').addEventListener('click',()=>{if(ui.call)connectAudio('call',`/api/calls/${ui.call.id}/answer`,{video:true},true);});
+
+/* ---------- Conference: add people ---------- */
+const PSTATUS={joining:'Joining the conference…',calling:'Calling…',ringing:'Ringing…',joined:'In the call',failed:'Couldn’t join'};
+function renderParticipants(c){
+  const list=c.conference?c.participants:[];
+  $('participants').hidden=!list.length;
+  $('participants').replaceChildren(...list.map(p=>{
+    const li=document.createElement('li');li.className=p.status;
+    li.innerHTML='<span class="initials"></span><span class="who"><strong></strong><small></small></span><span class="dot"></span>';
+    const name=nameFor(p.number)||formatNumber(p.number);
+    avatar(li.querySelector('.initials'),name);
+    li.querySelector('strong').textContent=name;
+    li.querySelector('small').textContent=p.status==='failed'&&p.error?p.error:(PSTATUS[p.status]||p.status);
+    if(c.adding&&(p.status==='calling'||p.status==='ringing')){
+      const x=document.createElement('button');x.className='icon-btn';x.type='button';x.title='Stop calling';x.setAttribute('aria-label','Stop calling');
+      x.innerHTML='<svg><use href="#i-end"/></svg>';
+      x.addEventListener('click',async()=>{try{renderCall({available:ui.ready,call:await api(`/api/calls/${encodeURIComponent(c.id)}/participants/cancel`,{method:'POST'})});}catch(e){toast(e.message);}});
+      li.querySelector('.dot').replaceWith(x);
+    }
+    return li;
+  }));
+}
+function renderAddSuggestions(){
+  const q=$('add-number').value.trim().toLowerCase(),digits=clean(q);
+  const {list}=buildContacts();
+  const matches=q?list.filter(c=>c.name.toLowerCase().includes(q)||(digits.length>=3&&c.numbers.some(n=>clean(n.number).includes(digits)))).slice(0,6):[];
+  $('add-suggest').replaceChildren(...matches.flatMap(c=>c.numbers.slice(0,2).map(n=>{
+    const b=document.createElement('button');b.type='button';
+    b.innerHTML='<span class="initials"></span><span class="who"><strong></strong><small></small></span>';
+    avatar(b.querySelector('.initials'),c.name);b.querySelector('strong').textContent=c.name;
+    b.querySelector('small').textContent=`${n.label} · ${formatNumber(n.number)}`;
+    b.addEventListener('click',()=>{$('add-number').value=clean(n.number);addParticipant();});
+    return b;
+  })));
+}
+async function addParticipant(){
+  const raw=$('add-number').value.trim();
+  const number=/^[+\d][\d ()-]*$/.test(raw)?raw:(buildContacts().list.find(c=>c.name.toLowerCase()===raw.toLowerCase())?.numbers[0]?.number||raw);
+  if(!/^\+?[0-9]{3,15}$/.test(String(number).replace(/[ ()-]/g,''))){toast('Enter a phone number, or pick a contact.');return;}
+  if(!ui.call)return;
+  $('add-submit').disabled=true;$('add-submit').textContent='Adding…';
+  try{
+    const c=await api(`/api/calls/${encodeURIComponent(ui.call.id)}/participants`,{method:'POST',body:JSON.stringify({number:clean(number)}),timeout:60000});
+    $('add-dialog').close();
+    if(connectionMode==='call')currentCallId=c.id;
+    renderCall({available:ui.ready,call:c});
+    toast(`Calling ${label(number)}… they join the conference when they answer.`);
+  }catch(e){toast(e.message);}
+  finally{$('add-submit').disabled=false;$('add-submit').textContent='Add to call';}
+}
+$('call-add').addEventListener('click',()=>{$('add-number').value='';$('add-suggest').replaceChildren();$('add-dialog').showModal();$('add-number').focus();});
+$('add-number').addEventListener('input',renderAddSuggestions);
+$('add-form').addEventListener('submit',e=>{e.preventDefault();addParticipant();});
+$('add-cancel').addEventListener('click',()=>$('add-dialog').close());
+
+/* ---------- Video stage ---------- */
+function renderVideo(c,clockText,callerName){
+  const negotiating=['dialing','ringing','early_media','answering'].includes(c.state);
+  // The other side (or the network) answered without video: carry on as a voice call.
+  if(videoCall&&c.state==='active'&&!c.videoActive&&c.connectedAt&&Date.now()/1000-c.connectedAt>2){
+    stream?.getVideoTracks().forEach(t=>{t.stop();stream.removeTrack(t);});
+    videoCall=false;
+    if(videoDeclinedShown!==c.id){videoDeclinedShown=c.id;toast('Video isn’t available on this call. It continues as a voice call.');}
+  }
+  const show=videoCall&&!videoHidden&&(negotiating||c.state==='active');
+  $('video-stage').hidden=!show;
+  $('show-video').hidden=!(videoCall&&videoHidden);
+  if(!show)return;
+  text('video-name',callerName||formatNumber(c.number));text('video-timer',clockText);
+  const receiving=c.videoActive&&($('remote-video').videoWidth>0);
+  $('video-wait').hidden=receiving;
+  text('video-wait-title',c.state==='active'?(c.videoActive?'Connecting video…':'Waiting for video…'):LABELS[c.state]||'Calling…');
+  text('video-wait-text',c.state==='active'?'The picture appears in a moment.':'Video starts when they answer.');
+}
+function setCamera(on){
+  stream?.getVideoTracks().forEach(t=>{t.enabled=on;});
+  $('local-video').classList.toggle('off',!on);
+  $('video-camera').setAttribute('aria-pressed',String(!on));
+  $('video-camera').querySelector('use').setAttribute('href',on?'#i-video':'#i-video-off');
+  $('video-camera').querySelector('span').textContent=on?'Camera':'Camera off';
+}
+$('video-camera').addEventListener('click',()=>setCamera($('video-camera').getAttribute('aria-pressed')==='true'));
+$('video-mute').addEventListener('click',()=>$('call-mute').click());
+$('video-end').addEventListener('click',()=>$('call-end').click());
+$('video-hide').addEventListener('click',()=>{videoHidden=true;if(ui.call)renderCall({available:ui.ready,call:ui.call});$('incall-keypad').hidden=false;$('toggle-keypad').setAttribute('aria-pressed','true');});
+$('show-video').addEventListener('click',()=>{videoHidden=false;if(ui.call)renderCall({available:ui.ready,call:ui.call});});
+$('remote-video').addEventListener('loadeddata',()=>{if(ui.call)renderCall({available:ui.ready,call:ui.call});});
 $('call-end').addEventListener('click',async()=>{
   const id=ui.call?.id,bound=currentCallId;
   await stopAudio();
@@ -501,15 +605,17 @@ $('call-end').addEventListener('click',async()=>{
 $('call-mute').addEventListener('click',()=>{
   const muted=$('call-mute').getAttribute('aria-pressed')!=='true';
   stream?.getAudioTracks().forEach(t=>{t.enabled=!muted;});
-  $('call-mute').setAttribute('aria-pressed',String(muted));
-  $('call-mute').querySelector('use').setAttribute('href',muted?'#i-mic-off':'#i-mic');
-  $('call-mute').querySelector('span').textContent=muted?'Unmute':'Mute';
+  for(const id of ['call-mute','video-mute']){
+    $(id).setAttribute('aria-pressed',String(muted));
+    $(id).querySelector('use').setAttribute('href',muted?'#i-mic-off':'#i-mic');
+    $(id).querySelector('span').textContent=muted?'Unmute':'Mute';
+  }
 });
 $('toggle-keypad').addEventListener('click',()=>{
   const show=$('incall-keypad').hidden;$('incall-keypad').hidden=!show;$('toggle-keypad').setAttribute('aria-pressed',String(show));
 });
 function resetMute(){
-  $('call-mute').setAttribute('aria-pressed','false');$('call-mute').querySelector('use').setAttribute('href','#i-mic');$('call-mute').querySelector('span').textContent='Mute';
+  for(const id of ['call-mute','video-mute']){$(id).setAttribute('aria-pressed','false');$(id).querySelector('use').setAttribute('href','#i-mic');$(id).querySelector('span').textContent='Mute';}
 }
 
 /* ---------- WebRTC audio (call + loopback test) ---------- */
@@ -518,6 +624,7 @@ async function stopAudio(hangup=true,message){
   const closingPeer=peer,closingSession=sessionId,closingCall=currentCallId,mode=connectionMode;
   peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;sessionId=null;connectionMode=null;currentCallId=null;
   closingPeer?.close();$('playback').srcObject=null;resetMute();
+  $('remote-video').srcObject=null;$('local-video').srcObject=null;videoCall=false;videoHidden=false;setCamera(true);$('video-stage').hidden=true;
   $('audio-stop').disabled=true;$('audio-start').disabled=starting||Boolean(ui.call&&LIVE.has(ui.call.state));
   if(mode==='loopback')text('audio-status',message||'Audio test stopped. Microphone released.');
   try{
@@ -525,20 +632,23 @@ async function stopAudio(hangup=true,message){
     if(mode==='call'&&closingCall&&hangup)await fetch(`/api/calls/${encodeURIComponent(closingCall)}`,{method:'DELETE',keepalive:true});
   }catch{}
 }
-async function connectAudio(mode,endpoint,extra={}){
+async function connectAudio(mode,endpoint,extra={},video=false){
   if(starting)return;
   if(peer)await stopAudio();
   starting=true;const run=++generation;numberChanged();$('audio-start').disabled=true;
   if(mode==='loopback')text('audio-status','Requesting microphone access…');
   try{
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('Microphone access is not available here.');
-    const capture=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+    const capture=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
+      video:video?{width:{ideal:640},height:{ideal:480},aspectRatio:{ideal:4/3},frameRate:{ideal:15,max:30}}:false});
     if(run!==generation){capture.getTracks().forEach(t=>t.stop());return;}
-    stream=capture;connectionMode=mode;
+    stream=capture;connectionMode=mode;videoCall=video;videoHidden=false;
+    if(video){$('local-video').srcObject=new MediaStream(capture.getVideoTracks());$('video-stage').hidden=false;}
     const active=new RTCPeerConnection({iceServers:[]});peer=active;
-    active.ontrack=async({track,streams})=>{
+    active.ontrack=async({track})=>{
       if(run!==generation)return;
-      $('playback').srcObject=streams[0]||new MediaStream([track]);
+      if(track.kind==='video'){$('remote-video').srcObject=new MediaStream([track]);try{await $('remote-video').play();}catch{}return;}
+      $('playback').srcObject=new MediaStream([track]);
       try{await $('playback').play();}catch{toast('Allow audio playback to hear the call.');}
     };
     active.onconnectionstatechange=()=>{
@@ -563,7 +673,8 @@ async function connectAudio(mode,endpoint,extra={}){
     pollCall();
   }catch(e){
     if(run===generation){
-      const message=e.name==='NotAllowedError'?'Microphone access was denied. Allow it in System Settings ▸ Privacy & Security ▸ Microphone.':e.message;
+      const message=e.name==='NotAllowedError'?(video?'Camera or microphone access was denied. Allow them in System Settings ▸ Privacy & Security.':'Microphone access was denied. Allow it in System Settings ▸ Privacy & Security ▸ Microphone.')
+        :e.name==='NotFoundError'&&video?'No camera was found. Try a voice call instead.':e.message;
       await stopAudio(true,message);toast(message);
     }
   }finally{starting=false;numberChanged();if(ui.call)renderCall({available:ui.ready,call:ui.call});}
@@ -603,12 +714,12 @@ function dial(number){
   setNumber(value);$('number').focus();
   return true;
 }
-async function answer(){
+async function answer(withVideo=false){
   if(ui.call?.state!=='incoming')try{renderCall(await api('/api/calls/current',{timeout:4000}));}catch{}
-  if(ui.call?.state==='incoming'&&!peer&&!starting){$('call-answer').click();return true;}
+  if(ui.call?.state==='incoming'&&!peer&&!starting){$(withVideo&&ui.call.offeredVideo?'call-answer-video':'call-answer').click();return true;}
   return false;
 }
 function focusDialer(){if(ui.started)showView('calls',ui.filter);$('number').focus();return true;}
 function decline(){if(ui.call&&LIVE.has(ui.call.state)){$('call-end').click();return true;}return false;}
-window.fiberApp={start,stop,dial,answer,decline,focusDialer,setSystemContacts,editName,refreshScreening:loadScreening,showContacts:()=>showView('contacts'),addContact,showDnd:()=>showView('dnd'),showBlocked:()=>showView('blocked'),showMissed:()=>showView('calls','missed'),showRecents:()=>showView('calls','all'),showConnection:()=>showView('connection'),get started(){return ui.started;}};
+window.fiberApp={start,stop,dial,answer,answerVideo:()=>answer(true),decline,focusDialer,setSystemContacts,editName,refreshScreening:loadScreening,showContacts:()=>showView('contacts'),addContact,showDnd:()=>showView('dnd'),showBlocked:()=>showView('blocked'),showMissed:()=>showView('calls','missed'),showRecents:()=>showView('calls','all'),showConnection:()=>showView('connection'),get started(){return ui.started;}};
 })();

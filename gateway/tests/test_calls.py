@@ -12,7 +12,7 @@ class FakeWriter:
 class FakeMedia:
     def __init__(self,address):self.remote=None;self.closed=False;self.track=None
     async def open(self):return self
-    def sdp(self,answer=False):return SDP
+    def sdp(self,answer=False,direction=None):return SDP+("a="+direction+"\r\n" if direction else "")
     def negotiate(self,sdp,incoming=False):self.remote={'codec':'AMR-WB'}
     def stats(self):return {'codec':'AMR-WB'}
     async def close(self):self.closed=True
