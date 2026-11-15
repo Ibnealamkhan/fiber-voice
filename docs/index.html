@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Fiber Voice for Mac</title>
+<meta name="description" content="Make and receive calls on your JioFiber landline number from your Mac. Free, open source, private. Download, install and set up in a few minutes.">
+<meta property="og:title" content="Fiber Voice: your JioFiber landline on your Mac">
+<meta property="og:description" content="Call from your JioFiber fixed-line number using your Mac's microphone and speakers. Free and open source.">
+<meta property="og:image" content="app-icon.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+:root{
+  --bg:#f5f7f3;--bg-2:#ecf1e8;--panel:#ffffff;--line:#e0e7dc;--line-2:#cfdacb;
+  --text:#18302a;--muted:#5f7268;--faint:#8b9b91;
+  --accent:#245c42;--accent-2:#2f7a57;--accent-soft:#e2eee5;--accent-text:#fff;
+  --violet:#6a5acd;--danger:#c0392f;--warn-bg:#fff7e6;--warn-line:#f0dcae;--warn-text:#7a5a12;
+  --shadow:0 1px 2px rgba(16,40,28,.06),0 12px 40px rgba(16,40,28,.08);
+  --radius:16px;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Segoe UI",Roboto,sans-serif;
+  color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased;font-synthesis:none;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111815;--bg-2:#151e1a;--panel:#19221e;--line:#25302a;--line-2:#34413a;
+  --text:#e6eee9;--muted:#9fb0a6;--faint:#6f8077;
+  --accent:#3f9a6c;--accent-2:#4fb07f;--accent-soft:#1d3127;--accent-text:#fff;
+  --warn-bg:#2a2414;--warn-line:#4a3f1f;--warn-text:#e3c57a;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 12px 40px rgba(0,0,0,.35);
+}}
+:root[data-theme="dark"]{
+  --bg:#111815;--bg-2:#151e1a;--panel:#19221e;--line:#25302a;--line-2:#34413a;
+  --text:#e6eee9;--muted:#9fb0a6;--faint:#6f8077;
+  --accent:#3f9a6c;--accent-2:#4fb07f;--accent-soft:#1d3127;--accent-text:#fff;
+  --warn-bg:#2a2414;--warn-line:#4a3f1f;--warn-text:#e3c57a;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 12px 40px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);line-height:1.55;font-size:16px}
+a{color:var(--accent-2);text-underline-offset:3px}
+img{max-width:100%}
+code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+kbd{border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--panel)}
+code{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+h1,h2,h3{letter-spacing:-.02em;line-height:1.15;margin:0}
+h2{font-size:clamp(26px,3.4vw,36px);font-weight:700}
+h3{font-size:18px;font-weight:650}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-2);margin:0 0 10px}
+.lead{color:var(--muted);font-size:18px;max-width:62ch;margin:12px 0 0}
+.btn{display:inline-flex;align-items:center;gap:10px;height:48px;padding:0 22px;border-radius:12px;font-weight:650;font-size:16px;text-decoration:none;border:1px solid transparent;transition:transform .08s,background .15s,box-shadow .15s}
+.btn svg{width:20px;height:20px;fill:currentColor}
+.btn.primary{background:var(--accent);color:var(--accent-text);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 35%,transparent)}
+.btn.primary:hover{background:var(--accent-2)}
+.btn.ghost{background:var(--panel);color:var(--text);border-color:var(--line-2)}
+.btn.ghost:hover{background:var(--bg-2)}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid color-mix(in srgb,var(--accent-2) 55%,transparent);outline-offset:3px}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:750;font-size:17px;color:var(--text);text-decoration:none;letter-spacing:-.02em}
+.brand img{width:30px;height:30px}
+.nav-links{display:flex;align-items:center;gap:22px;font-size:14px}
+.nav-links a{color:var(--muted);text-decoration:none}
+.nav-links a:hover{color:var(--text)}
+.nav-links .btn{height:36px;padding:0 14px;font-size:14px;border-radius:9px;color:var(--accent-text)}
+@media (max-width:760px){.nav-links a:not(.btn){display:none}}
+
+/* hero */
+.hero{padding:72px 0 40px;overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:1.02fr 1fr;gap:48px;align-items:center}
+.hero-icon{width:84px;height:84px;margin-bottom:18px;filter:drop-shadow(0 10px 18px rgba(20,60,40,.25))}
+.hero h1{font-size:clamp(38px,5.4vw,60px);font-weight:800;letter-spacing:-.035em}
+.hero h1 span{color:var(--accent-2)}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;color:var(--faint);font-size:13px}
+.meta span::before{content:"✓ ";color:var(--accent-2);font-weight:700}
+.disclaimer{margin-top:22px;font-size:12.5px;color:var(--faint);max-width:52ch}
+
+/* app mockup */
+.mock{position:relative;border-radius:14px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden;font-size:12px;user-select:none}
+.mock-bar{height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-2)}
+.mock-bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57;display:block}
+.mock-bar i:nth-child(2){background:#febc2e}.mock-bar i:nth-child(3){background:#28c840}
+.mock-bar b{margin:0 auto;font-weight:600;color:var(--muted);font-size:11px;transform:translateX(-20px)}
+.mock-body{display:grid;grid-template-columns:132px 1fr 150px;height:340px}
+.m-side{background:var(--bg-2);border-right:1px solid var(--line);padding:10px 8px;display:flex;flex-direction:column;gap:4px}
+.m-line{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 8px;margin-bottom:6px}
+.m-line small{display:block;color:var(--faint);font-size:8px;letter-spacing:.08em;text-transform:uppercase;font-weight:700}
+.m-line b{display:block;font-size:10.5px;white-space:nowrap}
+.m-line em{font-style:normal;color:var(--muted);font-size:9px}
+.m-line em::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#3aa86b;margin-right:4px}
+.m-nav{padding:5px 7px;border-radius:6px;color:var(--muted);font-size:10.5px;display:flex;justify-content:space-between}
+.m-nav.on{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--text);font-weight:600}
+.m-nav .badge{background:var(--danger);color:#fff;border-radius:8px;font-size:8.5px;padding:0 5px;font-weight:700}
+.m-main{padding:12px 12px;overflow:hidden}
+.m-main h4{margin:0 0 8px;font-size:14px;letter-spacing:-.02em}
+.m-group{font-size:8.5px;font-weight:700;letter-spacing:.08em;color:var(--faint);margin:8px 0 4px}
+.m-row{display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:7px}
+.m-row:nth-child(3){background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.m-ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-2);font-size:11px;flex:none}
+.m-ic.miss{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger)}
+.m-ic.dnd{background:color-mix(in srgb,var(--violet) 15%,transparent);color:var(--violet)}
+.m-row div{flex:1;min-width:0}
+.m-row b{display:block;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m-row b.miss{color:var(--danger)}
+.m-row span{display:block;color:var(--faint);font-size:9px}
+.m-row time{color:var(--faint);font-size:9px}
+.m-phone{border-left:1px solid var(--line);padding:16px 10px;display:flex;flex-direction:column;align-items:center}
+.m-num{font-size:15px;font-weight:500;letter-spacing:.02em;border-bottom:1px solid var(--line);width:100%;text-align:center;padding-bottom:6px}
+.m-hint{font-size:9px;color:var(--accent-2);font-weight:600;margin:5px 0 8px}
+.m-keys{display:grid;grid-template-columns:repeat(3,30px);gap:6px 10px}
+.m-keys i{width:30px;height:30px;border-radius:50%;background:var(--bg-2);display:grid;place-items:center;font-style:normal;font-size:12px}
+.m-call{width:34px;height:34px;border-radius:50%;background:#2f9a5f;margin-top:10px;display:grid;place-items:center;box-shadow:0 4px 10px rgba(47,154,95,.4)}
+.m-call svg{width:16px;height:16px;fill:#fff}
+.toast{position:absolute;right:-14px;bottom:-34px;width:236px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:10px 12px;display:grid;grid-template-columns:30px 1fr;gap:4px 10px;font-size:11px;animation:slide 1s .4s both cubic-bezier(.2,.8,.2,1)}
+.toast img{width:30px;height:30px;grid-row:span 2}
+.toast b{font-size:11.5px}
+.toast span{color:var(--muted)}
+.toast div{grid-column:1/-1;display:flex;gap:6px;margin-top:4px}
+.toast div i{flex:1;text-align:center;font-style:normal;padding:4px;border-radius:6px;background:var(--bg-2);font-weight:600}
+.toast div i:first-child{color:#2f9a5f}.toast div i:last-child{color:var(--danger)}
+@keyframes slide{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.toast{animation:none}html{scroll-behavior:auto}}
+.mock-wrap{position:relative;padding:0 10px 30px 0}
+
+/* sections */
+section{padding:72px 0}
+.alt{background:var(--bg-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.head{max-width:720px;margin-bottom:36px}
+.grid{display:grid;gap:16px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.card p{color:var(--muted);margin:8px 0 0;font-size:15px}
+.f-ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-2);margin-bottom:14px}
+.f-ic svg{width:21px;height:21px;fill:currentColor}
+
+/* requirements */
+.req{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.req li{list-style:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:14.5px;color:var(--muted)}
+.req li b{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
+.req{padding:0;margin:0}
+
+/* steps */
+.steps{counter-reset:step;display:grid;gap:18px;padding:0;margin:0}
+.step{list-style:none;display:grid;grid-template-columns:52px 1fr minmax(240px,340px);gap:20px;align-items:start;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.step::before{counter-increment:step;content:counter(step);width:40px;height:40px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:750;font-size:17px}
+.step p,.step li{color:var(--muted);font-size:15px}
+.step p{margin:8px 0 0}
+.step ul{margin:8px 0 0;padding-left:18px}
+.step .visual{background:var(--bg-2);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:12.5px;min-height:100%}
+.note{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-text);font-size:13.5px}
+
+/* step visuals */
+.dmg{display:flex;align-items:center;justify-content:space-around;height:110px;position:relative}
+.dmg figure{margin:0;text-align:center;font-size:11px;color:var(--muted)}
+.dmg figure img,.dmg .folder{width:56px;height:56px;display:block;margin:0 auto 6px}
+.folder{border-radius:10px;background:linear-gradient(#6fb3ee,#3d8ad8);position:relative}
+.folder::before{content:"A";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-weight:800;font-size:22px;opacity:.85}
+.arrow{font-size:26px;color:var(--accent-2);animation:nudge 1.6s infinite ease-in-out}
+@keyframes nudge{50%{transform:translateX(6px)}}
+.settings{font-size:12px}
+.settings .row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:9px;gap:10px}
+.settings .row+.row{margin-top:6px}
+.pill{border-radius:7px;padding:3px 10px;background:var(--accent);color:#fff;font-weight:600;font-size:11px;white-space:nowrap}
+.pill.grey{background:var(--line-2);color:var(--text)}
+.mini-setup{display:grid;gap:6px}
+.mini-setup div{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;background:var(--panel);border:1px solid var(--line)}
+.mini-setup div.on{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
+.mini-setup i{width:20px;height:20px;border-radius:50%;background:var(--line-2);display:grid;place-items:center;font-style:normal;font-size:10px;font-weight:700;flex:none}
+.mini-setup .done i{background:var(--accent);color:#fff}
+.mini-setup .on i{background:var(--accent-soft);color:var(--accent-2)}
+.otp{display:flex;gap:6px;justify-content:center;margin-top:8px}
+.otp b{width:26px;height:32px;border:1px solid var(--line-2);border-radius:7px;display:grid;place-items:center;background:var(--panel);font-size:14px}
+
+/* tips + faq */
+.tips{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.tip{display:flex;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.tip .f-ic{flex:none;margin:0}
+.tip p{margin:4px 0 0;color:var(--muted);font-size:14.5px}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0 18px}
+details+details{margin-top:10px}
+summary{cursor:pointer;padding:16px 0;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:12px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--faint);font-size:20px;line-height:1;transition:transform .2s}
+details[open] summary::after{transform:rotate(45deg)}
+details p,details ul{color:var(--muted);margin:0 0 16px;font-size:15px}
+details ul{padding-left:20px}
+
+/* other ways + footer */
+.other{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.other .card a{font-weight:600}
+.download-band{background:linear-gradient(135deg,var(--accent),#17452e);color:#fff;border-radius:22px;padding:44px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.download-band h2{color:#fff}
+.download-band p{color:rgba(255,255,255,.8);margin:8px 0 0}
+.download-band .btn.primary{background:#fff;color:#17452e;box-shadow:none}
+.download-band .btn.primary:hover{background:#eef6f1}
+.download-band .btn.ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.4)}
+footer{padding:36px 0 48px;color:var(--faint);font-size:13.5px}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer a{color:var(--muted)}
+
+@media (max-width:980px){
+  .hero .wrap{grid-template-columns:1fr}
+  .mock-wrap{max-width:560px}
+  .g4,.req{grid-template-columns:repeat(2,1fr)}
+  .g3,.other{grid-template-columns:1fr 1fr}
+  .step{grid-template-columns:44px 1fr}
+  .step .visual{grid-column:2}
+}
+@media (max-width:620px){
+  .wrap{padding:0 16px}
+  .mock-wrap{padding:0 0 40px}
+  .hero{padding-top:44px}
+  section{padding:52px 0}
+  .g3,.g4,.req,.other,.tips{grid-template-columns:1fr}
+  .step{grid-template-columns:1fr;padding:18px}
+  .step .visual{grid-column:1}
+  .mock-body{grid-template-columns:1fr 128px}
+  .m-side{display:none}
+  .toast{right:6px;width:214px;bottom:-30px}
+  .m-num{font-size:12.5px;white-space:nowrap}
+  .nav-links .btn{width:auto}
+  .download-band{padding:28px}
+  .btn{width:100%;justify-content:center}
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="app-icon.png" alt="" width="30" height="30">Fiber Voice</a>
+    <nav class="nav-links" aria-label="Page sections">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#setup">Setup</a>
+      <a href="#help">Help</a>
+      <a href="https://github.com/Ibnealamkhan/fiber-voice">GitHub</a>
+      <a class="btn primary" href="#download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <img class="hero-icon" src="app-icon.png" alt="Fiber Voice app icon" width="84" height="84">
+        <h1>Your JioFiber landline, <span>on your Mac.</span></h1>
+        <p class="lead">Make and receive calls from your fixed-line number using your Mac’s microphone and speakers. It works alongside your phone, sets up in about a minute, and everything stays on your Mac.</p>
+        <div class="cta" id="download">
+          <a class="btn primary" href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/Fiber-Voice-mac-arm64.dmg">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.59 1.1 8.75.73 1.05 1.6 2.24 2.73 2.2 1.1-.05 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.4 1.2-2.47-.03-.01-2.27-.87-2.29-3.51zM14.2 6.13c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.64-1.05 1.67-.92 2.66.97.07 1.96-.49 2.56-1.21z"/></svg>
+            Download for Mac
+          </a>
+          <a class="btn ghost" href="#install">How to install</a>
+        </div>
+        <div class="meta"><span>macOS 13 or later</span><span>Apple silicon</span><span>Free &amp; open source</span></div>
+        <p class="disclaimer">Fiber Voice is an independent, unofficial app. It is not made by, affiliated with or endorsed by Jio, and it only works on your own JioFiber connection.</p>
+      </div>
+
+      <div class="mock-wrap" aria-hidden="true">
+        <div class="mock">
+          <div class="mock-bar"><i></i><i></i><i></i><b>Fiber Voice</b></div>
+          <div class="mock-body">
+            <div class="m-side">
+              <div class="m-line"><small>Your landline</small><b>+91 22 XXXX XX00</b><em>Ready for calls</em></div>
+              <div class="m-nav on">Recents</div>
+              <div class="m-nav">Missed <span class="badge">1</span></div>
+              <div class="m-nav">Contacts</div>
+              <div class="m-nav">Do Not Disturb</div>
+              <div class="m-nav">Blocked</div>
+            </div>
+            <div class="m-main">
+              <h4>Recents</h4>
+              <div class="m-group">TODAY</div>
+              <div class="m-row"><span class="m-ic">↗</span><div><b>Mom</b><span>Outgoing · 12m 40s</span></div><time>9:41 PM</time></div>
+              <div class="m-row"><span class="m-ic miss">↙</span><div><b class="miss">+91 98XXX XXX21</b><span>Missed call</span></div><time>8:05 PM</time></div>
+              <div class="m-row"><span class="m-ic">↙</span><div><b>Office</b><span>Incoming · 3m 02s</span></div><time>6:15 PM</time></div>
+              <div class="m-group">YESTERDAY</div>
+              <div class="m-row"><span class="m-ic dnd">☾</span><div><b>+91 70XXX XXX88</b><span>Silenced · Do Not Disturb</span></div><time>11:20 PM</time></div>
+              <div class="m-row"><span class="m-ic">↗</span><div><b>Ravi Kumar</b><span>Outgoing · 5m 12s</span></div><time>7:02 PM</time></div>
+            </div>
+            <div class="m-phone">
+              <div class="m-num">98XXX XXXXX</div>
+              <div class="m-hint">Ravi Kumar</div>
+              <div class="m-keys"><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i><i>*</i><i>0</i><i>#</i></div>
+              <div class="m-call"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.58.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.6 21 3 13.4 3 4c0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.46.57 3.58.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></div>
+            </div>
+          </div>
+        </div>
+        <div class="toast"><img src="app-icon.png" alt=""><b>Incoming call</b><span>Office · +91 22 XXXX XX34</span><div><i>Answer</i><i>Decline</i></div></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="features" class="alt">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Features</p>
+        <h2>Everything a desk phone does, built into your Mac.</h2>
+      </div>
+      <div class="grid g3">
+        <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.58.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.6 21 3 13.4 3 4c0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.46.57 3.58.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></div><h3>HD calls from your number</h3><p>Outgoing and incoming calls in HD voice, a keypad for phone menus, mute, and a call timer. Type or paste a number anywhere and press Return.</p></div>
+        <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-2.05-4.95L14 10h7V3l-2.64 2.64A8.96 8.96 0 0 0 12 3zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H11z"/></svg></div><h3>Recents &amp; missed calls</h3><p>Every call is grouped by day, with a red badge on the sidebar, Dock and menu bar for calls you missed. Call anyone back with one click.</p></div>
+        <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div><h3>Contacts &amp; favourites</h3><p>See names from your Mac’s Contacts on calls and in the log. Star favourites, add contacts of your own, and see your call history with each person.</p></div>
+        <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M12.34 2.02A10 10 0 1 0 22 13.66a8 8 0 0 1-9.66-11.64z"/></svg></div><h3>Do Not Disturb</h3><p>Silence your Mac for an hour, until morning, or every night on a schedule. If the same number calls twice in 3 minutes, the second call can ring through.</p></div>
+        <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM4 12a8 8 0 0 1 12.9-6.32L5.68 16.9A7.95 7.95 0 0 1 4 12zm8 8a7.95 7.95 0 0 1-4.9-1.68L18.32 7.1A8 8 0 0 1 12 20z"/></svg></div><h3>Block numbers</h3><p>Reject unwanted callers straight from Recents or Contacts. Blocked calls are kept in the log, so you can see who tried.</p></div>
+        <div class="card"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10zm-6-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg></div><h3>Private by design</h3><p>Everything runs on your Mac and talks only to your own router. Nothing is recorded or uploaded, and no account is needed.</p></div>
+      </div>
+      <div class="grid g4" style="margin-top:16px">
+        <div class="card"><h3>Menu bar</h3><p>Line status, recent calls and Do Not Disturb, always one click away.</p></div>
+        <div class="card"><h3>Answer from banners</h3><p>Incoming-call notifications with Answer and Decline buttons.</p></div>
+        <div class="card"><h3>Click to call</h3><p>Click any phone number in Safari, Mail or Contacts to call it.</p></div>
+        <div class="card"><h3>Opens at login</h3><p>Starts quietly in the menu bar, so your landline can always ring.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="requirements">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Before you start</p>
+        <h2>What you need</h2>
+      </div>
+      <ul class="req">
+        <li><b>JioFiber landline</b>Fixed-line calling must be active on your JioFiber connection.</li>
+        <li><b>Your home network</b>Connect your Mac to your JioFiber Wi-Fi or LAN, without a VPN or custom DNS.</li>
+        <li><b>IPv6 turned on</b>It’s on by default. If setup says otherwise, turn it on in the router’s settings.</li>
+        <li><b>Registered mobile</b>The router texts a one-time code to it during setup.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="install" class="alt">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Install</p>
+        <h2>Install in four steps</h2>
+        <p class="lead">It takes about two minutes. You only do this once.</p>
+      </div>
+      <ol class="steps">
+        <li class="step">
+          <div>
+            <h3>Download the app</h3>
+            <p>Click <a href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/Fiber-Voice-mac-arm64.dmg">Download for Mac</a>. You get a file called <code>Fiber-Voice-mac-arm64.dmg</code> (about 40 MB) in your Downloads folder.</p>
+            <p>Not sure your Mac has Apple silicon? Open the <b>Apple menu ▸ About This Mac</b>. If <i>Chip</i> says Apple M1, M2, M3 or newer, you’re set. Intel Macs can <a href="#other">build their own copy</a>.</p>
+          </div>
+          <div class="visual"><div class="dmg"><figure><img src="app-icon.png" alt="">Fiber-Voice-mac-arm64.dmg</figure></div></div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>Drag it into Applications</h3>
+            <p>Double-click the downloaded file. In the window that opens, drag <b>Fiber Voice</b> onto the <b>Applications</b> folder. Then eject the “Fiber Voice” disk in Finder’s sidebar.</p>
+          </div>
+          <div class="visual"><div class="dmg"><figure><img src="app-icon.png" alt="">Fiber Voice</figure><span class="arrow">→</span><figure><span class="folder"></span>Applications</figure></div></div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>Open it the first time</h3>
+            <p>Open <b>Fiber Voice</b> from Applications or Launchpad. This free app isn’t notarized by Apple, so macOS blocks the first launch:</p>
+            <ul>
+              <li>Click <b>Done</b> (or <b>OK</b>) on the warning.</li>
+              <li>Open <b>System Settings ▸ Privacy &amp; Security</b> and scroll down.</li>
+              <li>Next to “Fiber Voice was blocked…”, click <b>Open Anyway</b>, then confirm with your password or Touch ID.</li>
+            </ul>
+            <p class="note">You only need to do this once. The full source code is on <a href="https://github.com/Ibnealamkhan/fiber-voice">GitHub</a> if you’d rather check it or build it yourself.</p>
+          </div>
+          <div class="visual settings">
+            <div class="row"><span><b>Security</b></span></div>
+            <div class="row"><span>“Fiber Voice” was blocked to protect your Mac.</span><span class="pill">Open Anyway</span></div>
+          </div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>Allow what it asks for</h3>
+            <ul>
+              <li><b>Local network:</b> click <b>Allow</b>. The app needs this to reach your router.</li>
+              <li><b>Notifications:</b> allow them, so incoming and missed calls can alert you.</li>
+              <li><b>Microphone:</b> it asks on your first call. Click <b>Allow</b>.</li>
+              <li><b>Open at login:</b> say yes, so your landline rings whenever your Mac is on.</li>
+            </ul>
+          </div>
+          <div class="visual settings">
+            <div class="row"><span>“Fiber Voice” would like to find devices on your local network.</span></div>
+            <div class="row"><span></span><span><span class="pill grey">Don’t Allow</span> <span class="pill">Allow</span></span></div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="setup">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Setup</p>
+        <h2>Connect your landline (about a minute)</h2>
+        <p class="lead">The first time you open Fiber Voice, it shows a short setup screen. Have your registered mobile nearby.</p>
+      </div>
+      <ol class="steps">
+        <li class="step">
+          <div>
+            <h3>Find your router</h3>
+            <p>Click <b>Check router</b>. Fiber Voice finds your JioFiber router and shows your fixed-line number and the router’s security certificate.</p>
+            <p>Click <b>Trust this router</b>. Only do this on your own home network. Your Mac will only ever send your calling credentials to this exact router.</p>
+          </div>
+          <div class="visual mini-setup">
+            <div class="on"><i>1</i><span><b>Find your router</b><br><span style="color:var(--muted)">+91 22 XXXX XX00 · IPv6 available</span></span></div>
+            <div><i>2</i>Authorize this Mac</div>
+            <div><i>3</i>Ready to call</div>
+          </div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>Authorize this Mac</h3>
+            <p>Click <b>Send code</b>. Your router texts a 5- or 6-digit code to the mobile number registered with your JioFiber account. Type it in and click <b>Verify</b>.</p>
+            <p>No code after a minute? Click <b>Send a new code</b>.</p>
+          </div>
+          <div class="visual mini-setup">
+            <div class="done"><i>✓</i>Find your router</div>
+            <div class="on"><i>2</i><span><b>Authorize this Mac</b><span class="otp"><b>4</b><b>8</b><b>1</b><b>5</b><b>9</b><b>2</b></span></span></div>
+            <div><i>3</i>Ready to call</div>
+          </div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>Start calling</h3>
+            <p>Your Mac registers with your landline in a few seconds, and the sidebar shows <b>Ready for calls</b>. Click <b>Start calling</b>, type a number and press <kbd>Return</kbd>.</p>
+            <p>Want names on your calls? In <b>Recents</b>, click <b>Allow</b> on “Show names from your Mac’s Contacts”.</p>
+          </div>
+          <div class="visual mini-setup">
+            <div class="done"><i>✓</i>Find your router</div>
+            <div class="done"><i>✓</i>Authorize this Mac</div>
+            <div class="on"><i>3</i><span><b>Ready to call</b><br><span style="color:var(--muted)">This Mac is registered with your landline.</span></span></div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="tips" class="alt">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Everyday use</p>
+        <h2>Good to know</h2>
+      </div>
+      <div class="tips">
+        <div class="tip"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.58.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.6 21 3 13.4 3 4c0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.46.57 3.58.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></div><div><h3>Calling</h3><p>Type or paste a number anywhere in the window, then press <kbd>Return</kbd>. During a call: Mute, Keypad for “press 1” menus, and <kbd>Esc</kbd> to hang up. Headphones give the best sound.</p></div></div>
+        <div class="tip"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg></div><div><h3>Incoming calls</h3><p>The window pops up, a ringtone plays, and a notification offers <b>Answer</b> and <b>Decline</b>. For buttons that stay on screen, set Fiber Voice to <b>Alerts</b> in System Settings ▸ Notifications.</p></div></div>
+        <div class="tip"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2zM3 5h18v2H3zm0 12h18v2H3z"/></svg></div><div><h3>Closing isn’t quitting</h3><p>Close the window and Fiber Voice keeps running in the menu bar, so calls still ring. Quit with <kbd>⌘</kbd><kbd>Q</kbd> to stop receiving calls on this Mac.</p></div></div>
+        <div class="tip"><div class="f-ic"><svg viewBox="0 0 24 24"><path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/></svg></div><div><h3>Click-to-call links</h3><p>In the menu bar icon, choose <b>Use for Phone Links</b>. Phone numbers you click in Safari, Mail, Contacts or Calendar will then open in Fiber Voice.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="help">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Help</p>
+        <h2>Troubleshooting</h2>
+      </div>
+      <details><summary>“Cannot find the JioFiber router”</summary><p>Connect your Mac directly to your JioFiber Wi-Fi or a LAN cable from the JioFiber router. Turn off any VPN, and remove custom DNS servers such as 8.8.8.8 or 1.1.1.1 in System Settings ▸ Network ▸ Details ▸ DNS. A mesh system or second router with its own network can hide the JioFiber router.</p></details>
+      <details><summary>Setup says IPv6 is “Not available”</summary><p>Open your router’s admin page (usually <code>http://192.168.29.1</code>), turn on IPv6, then turn your Mac’s Wi-Fi off and on again and click <b>Check again</b>.</p></details>
+      <details><summary>The code never arrives, or setup is refused</summary><ul><li>Wait a minute, then click <b>Send a new code</b>. It goes to the mobile number registered with your JioFiber account.</li><li>If the router refuses, it may have reached its device limit. Remove an old device from the JioJoin app’s device list and try again.</li><li>“Encrypted configuration” means your router firmware isn’t supported yet.</li></ul></details>
+      <details><summary>Calls fail, or show “Unreachable”</summary><p>Hover over the call in Recents to see the exact reason the network gave. “Unreachable” means Jio reported the other phone as switched off or out of coverage. If every call fails, check that the sidebar says <b>Ready for calls</b>, use <b>Line ▸ Reload</b>, and make sure landline calling works from your phone.</p></details>
+      <details><summary>No sound, or the other person can’t hear me</summary><p>Allow microphone access in System Settings ▸ Privacy &amp; Security ▸ Microphone ▸ Fiber Voice. Try the microphone test on the <b>Connection</b> page, and use headphones to avoid echo.</p></details>
+      <details><summary>I changed routers or want to remove my details</summary><p>Click <b>Log out</b> in the sidebar. This disconnects the Mac, forgets the router, and clears the call log and settings saved in the app; your Mac’s Contacts are never changed. To uninstall, delete Fiber Voice from Applications, along with <code>~/Library/Application Support/Fiber Voice</code>.</p></details>
+      <details><summary>Is this safe? Does it record my calls?</summary><p>Fiber Voice runs entirely on your Mac and talks only to your own JioFiber router. It records no calls and stores no audio. The call log keeps only numbers, times and durations, on your Mac. Your credentials are stored with owner-only permissions. The <a href="https://github.com/Ibnealamkhan/fiber-voice">source code</a> is open for anyone to read.</p></details>
+    </div>
+  </section>
+
+  <section id="other" class="alt">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Other computers</p>
+        <h2>Not on an Apple-silicon Mac?</h2>
+      </div>
+      <div class="other">
+        <div class="card"><h3>Intel Mac</h3><p>Build your own copy in a few minutes with Xcode Command Line Tools and Homebrew: <code>./macapp/build.sh</code>.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice#option-2-build-the-mac-app">Build instructions →</a></p></div>
+        <div class="card"><h3>Any browser (macOS or Linux)</h3><p>Run the gateway with <code>./run.sh</code> and use the same dialer at <code>127.0.0.1:8765</code> in Chrome, Safari, Edge or Firefox.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice#option-1-use-it-in-your-web-browser">Browser instructions →</a></p></div>
+        <div class="card"><h3>Windows</h3><p>Run it in Docker inside Ubuntu on WSL2 (Windows 11), then use the dialer in Chrome or Edge.</p><p><a href="https://github.com/Ibnealamkhan/fiber-voice/blob/main/gateway/DOCKER-WINDOWS.md">Windows guide →</a></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="download-band">
+        <div>
+          <h2>Ready to call from your Mac?</h2>
+          <p>Free and open source. macOS 13 or later on Apple silicon.</p>
+        </div>
+        <div class="cta" style="margin:0">
+          <a class="btn primary" href="https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/Fiber-Voice-mac-arm64.dmg">Download for Mac</a>
+          <a class="btn ghost" href="https://github.com/Ibnealamkhan/fiber-voice/releases">All releases</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Fiber Voice is an independent, unofficial project, not affiliated with or endorsed by Jio. JioFiber is a trademark of its owner.</span>
+    <span><a href="https://github.com/Ibnealamkhan/fiber-voice">GitHub</a> · <a href="https://github.com/Ibnealamkhan/fiber-voice/blob/main/LICENSE">MIT License</a></span>
+  </div>
+</footer>
+</body>
+</html>

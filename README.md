@@ -2,6 +2,8 @@
 
 Make and receive calls on your **JioFiber landline number** from a computer on your JioFiber network, using its microphone and speakers. Use it in a web browser, or build a native Mac app.
 
+**[Download for Mac and setup guide →](https://ibnealamkhan.github.io/fiber-voice/)** (Apple silicon, macOS 13 or later)
+
 > Fiber Voice is an independent, unofficial project. It is not made by, affiliated with, or endorsed by Jio. It only works on your own JioFiber connection, with your own landline number.
 
 ## Features
@@ -73,6 +75,8 @@ Go to **<http://127.0.0.1:8765/>** in Chrome, Edge, Safari or Firefox on the sam
 ---
 
 ## Option 2: Build the Mac app
+
+> Just want to use it? Download the ready-made app from the [latest release](https://github.com/Ibnealamkhan/fiber-voice/releases/latest) and follow the [install guide](https://ibnealamkhan.github.io/fiber-voice/#install). Build it yourself for an Intel Mac, or to make changes.
 
 This produces **Fiber Voice.app** and a drag-to-install **DMG**. The app has Python, the gateway and the audio codecs built in, so the people you share it with don't need to install anything.
 
