@@ -4,6 +4,8 @@ Install with **FiberVoice-Setup.exe** to make and receive JioFiber landline call
 on Windows x64. No terminal, Python or .NET installation is needed on the
 computer running it.
 
+**[Download FiberVoice-Setup.exe](https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/FiberVoice-Setup.exe)** (latest release)
+
 ## Use
 
 1. Run `FiberVoice-Setup.exe` to install **Fiber Voice**, with its app icon and

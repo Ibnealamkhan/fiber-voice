@@ -1,8 +1,10 @@
 # Fiber Voice
 
-Make and receive calls on your **JioFiber landline number** from a computer on your JioFiber network, using its microphone and speakers. Use it in a web browser, or build a Mac or Windows desktop app.
+Make and receive calls on your **JioFiber landline number** from a computer on your JioFiber network, using its microphone and speakers. Use it in a web browser, or install the Mac or Windows desktop app.
 
 **[Download for Mac and setup guide →](https://ibnealamkhan.github.io/fiber-voice/)** (Apple silicon, macOS 13 or later)
+
+**[Download for Windows →](https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/FiberVoice-Setup.exe)** (Windows 11 x64, preview)
 
 > Fiber Voice is an independent, unofficial project. It is not made by, affiliated with, or endorsed by Jio. It only works on your own JioFiber connection, with your own landline number.
 
@@ -131,13 +133,18 @@ Full Mac app guide (menu bar, notifications, contacts, Do Not Disturb, troublesh
 
 ## Option 3: Windows app
 
-Run **FiberVoice-Setup.exe** to install **Fiber Voice**, with its app icon and
-Start menu and desktop shortcuts. The app starts its bundled calling engine
-automatically: no Python, terminal or other software is needed. Complete router
-trust and OTP setup in the app, just like on Mac.
+> **Preview:** the Windows app hasn't been tested on a live JioFiber line yet.
 
-Build the installer with `./winapp/build.ps1` in PowerShell; it is written to
-`winapp/dist/FiberVoice-Setup.exe`. See the [Windows app guide](winapp/README.md).
+**[Download FiberVoice-Setup.exe](https://github.com/Ibnealamkhan/fiber-voice/releases/latest/download/FiberVoice-Setup.exe)** from the
+[latest release](https://github.com/Ibnealamkhan/fiber-voice/releases/latest) and
+run it to install **Fiber Voice**, with its app icon and Start menu and desktop
+shortcuts. The installer isn't signed, so Windows may show "Windows protected
+your PC": choose **More info ▸ Run anyway**. The app starts its bundled calling
+engine automatically: no Python, terminal or other software is needed. Complete
+router trust and OTP setup in the app, just like on Mac.
+
+To build it yourself, run `./winapp/build.ps1` in PowerShell; the installer is
+written to `winapp/dist/FiberVoice-Setup.exe`. See the [Windows app guide](winapp/README.md).
 Windows 11 x64 is the target. The app installs Microsoft Edge WebView2 if missing
 (internet required for that first-time step).
 
