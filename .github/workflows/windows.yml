@@ -1,12 +1,17 @@
 name: Windows app
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release tag to attach FiberVoice-Setup.exe to (leave empty to only build)'
+        required: false
+        default: ''
   push:
     paths: ['winapp/**', 'gateway/**', '.github/workflows/windows.yml']
   pull_request:
     paths: ['winapp/**', 'gateway/**', '.github/workflows/windows.yml']
 permissions:
-  contents: read
+  contents: write  # only used to attach the installer when a release tag is given
 jobs:
   build:
     runs-on: windows-latest
@@ -35,3 +40,14 @@ jobs:
         with:
           name: FiberVoice-Setup-Windows-x64
           path: winapp/dist/FiberVoice-Setup.exe
+      - name: Attach installer to release
+        if: github.event_name == 'workflow_dispatch' && inputs.release != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          $hash = (Get-FileHash winapp/dist/FiberVoice-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "FiberVoice-Setup.exe SHA-256: $hash"
+          gh release upload "$env:RELEASE" winapp/dist/FiberVoice-Setup.exe --clobber -R "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not attach the installer to the release' }
