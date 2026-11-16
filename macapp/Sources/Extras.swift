@@ -90,6 +90,11 @@ extension AppDelegate: NSMenuDelegate {
             UNNotificationCategory(identifier: "INCOMING_CALL", actions: [answer, decline], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "INCOMING_VIDEO_CALL", actions: [answerVideo, answerVoice, decline], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "MISSED_CALL", actions: [callBack], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: "CALL_WAITING", actions: [
+                UNNotificationAction(identifier: "ANSWER_WAITING", title: "Hold & Answer", options: [.foreground]),
+                UNNotificationAction(identifier: "END_ANSWER_WAITING", title: "End & Answer", options: [.foreground]),
+                UNNotificationAction(identifier: "DECLINE_WAITING", title: "Decline", options: [.destructive]),
+            ], intentIdentifiers: [], options: []),
         ])
     }
 
@@ -105,6 +110,14 @@ extension AppDelegate: NSMenuDelegate {
             // Decline directly, so it works even while the window is hidden.
             if let id = userInfo["callId"] as? String { declineCall(id: id) }
             stopRinging()
+        case "ANSWER_WAITING":
+            showWindow()
+            callPage("answerWaiting")
+        case "END_ANSWER_WAITING":
+            showWindow()
+            callPage("endAndAnswer")
+        case "DECLINE_WAITING":
+            if let id = userInfo["callId"] as? String { declineCall(id: id) }
         case "CALL_BACK":
             showWindow()
             if let number = userInfo["number"] as? String { dial(number) }

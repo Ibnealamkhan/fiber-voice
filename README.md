@@ -11,6 +11,7 @@ Make and receive calls on your **JioFiber landline number** from a computer on y
 ## Features
 
 - **Calling:** outgoing and incoming calls in HD voice (AMR-WB), a keypad for phone menus, mute, and a call timer.
+- **Call waiting and hold:** hold and resume a call; take a second call with Hold & Answer, then swap between the two; or End & Answer, or decline.
 - **Conference calls:** add people to a call (up to 6), phone-style: the app calls each person, then Jio's network merges them in, with live status for each person.
 - **Video calls (beta):** H.264 video at up to 640×480 with phones that support video calling, with camera on/off and answer-with-video.
 - **Recents:** a call log with missed, blocked and unreachable calls, plus search.

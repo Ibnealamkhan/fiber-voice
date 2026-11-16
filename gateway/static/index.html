@@ -34,6 +34,8 @@
   <symbol id="i-video" viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></symbol>
   <symbol id="i-video-off" viewBox="0 0 24 24"><path d="M21 6.5l-4 4V7a1 1 0 0 0-1-1H9.82L21 17.18V6.5zM3.27 2 2 3.27 4.73 6H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z"/></symbol>
   <symbol id="i-person-add" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
 </svg>
 
@@ -250,6 +252,14 @@
     </div>
 
     <div class="incall" id="incall" hidden>
+      <div class="waiting-card" id="waiting-card" role="alert" hidden>
+        <div class="waiting-who"><span class="initials" id="waiting-avatar"></span><div><small>Call waiting</small><strong id="waiting-name"></strong></div></div>
+        <div class="waiting-actions">
+          <button class="btn primary small" id="waiting-hold" type="button">Hold &amp; Answer</button>
+          <button class="btn ghost small" id="waiting-end" type="button">End &amp; Answer</button>
+          <button class="btn ghost small danger-text" id="waiting-decline" type="button">Decline</button>
+        </div>
+      </div>
       <div class="avatar"><svg><use href="#i-phone"/></svg></div>
       <h2 id="incall-number">—</h2>
       <p class="incall-sub" id="incall-sub" hidden></p>
@@ -260,8 +270,15 @@
       <div class="incall-controls" id="incall-controls">
         <button class="round" id="call-mute" aria-pressed="false"><svg><use href="#i-mic"/></svg><span>Mute</span></button>
         <button class="round" id="toggle-keypad" aria-pressed="false"><svg><use href="#i-dialpad"/></svg><span>Keypad</span></button>
+        <button class="round" id="call-hold" aria-pressed="false" hidden><svg><use href="#i-pause"/></svg><span>Hold</span></button>
         <button class="round" id="call-add" hidden><svg><use href="#i-person-add"/></svg><span>Add</span></button>
         <button class="round" id="show-video" hidden><svg><use href="#i-video"/></svg><span>Video</span></button>
+      </div>
+      <div class="held-card" id="held-card" hidden>
+        <svg><use href="#i-pause"/></svg>
+        <div class="held-who"><small>On hold</small><strong id="held-name"></strong></div>
+        <button class="btn ghost small" id="held-swap" type="button"><svg><use href="#i-swap"/></svg>Swap</button>
+        <button class="icon-btn end" id="held-end" type="button" aria-label="End the call on hold" title="End the call on hold"><svg><use href="#i-end"/></svg></button>
       </div>
       <div class="incall-actions">
         <button class="call-btn" id="call-answer" hidden aria-label="Answer" title="Answer"><svg><use href="#i-phone"/></svg></button>

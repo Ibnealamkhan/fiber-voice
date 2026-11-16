@@ -36,6 +36,12 @@ The router treats this Mac as one of your landline's devices, so your phone's Ji
   - Names also appear in the dialer as you type, on the call screen, in incoming and missed call notifications, and in the menu bar. Search works by name.
   - Numbers match however they're written: `+91 98765 43210`, `09876543210` and `98765 43210` are the same contact.
 - **Conference calls:** during a voice call, click **Add**, then type a number or pick a contact. The conference is put on hold while the app calls them; when they answer, they're merged in and everyone hears everyone. The call screen lists each person as calling, ringing, in the call, or couldn't join. You can stop calling someone with the red button next to their name. Add more people the same way, up to 6. If your current caller can't be moved into the conference, you stay on your original call.
+- **Call waiting and hold:** during a call, click **Hold** to put the caller on hold (both sides go silent) and **Resume** to continue. If someone else calls during a call, a **Call waiting** card appears with a soft beep, plus a notification if the window is in the background. You can:
+  - **Hold & Answer:** the first caller waits on hold. The held call shows below with **Swap**, to switch between the two, and a button to end it.
+  - **End & Answer:** hang up and take the new call.
+  - **Decline:** the caller hears busy.
+
+  A third caller hears busy.
 - **Video calls (beta):** click the camera button next to Call, or **Answer with Video** on an incoming video call. Allow camera access the first time. During the call you get Mute, Camera on/off, Keypad and Hang up. If the other phone can't do video, the call carries on as a voice call.
 - **Contacts (⌘4):** an A–Z list of everyone in your Mac's Contacts who has a phone number, plus people you add in Fiber Voice, with search by name or number.
   - Click someone to see their card: each number with its label (mobile, work, home) and a call button, your recent calls with them, and **Favourite**, **Block** and **Edit**.

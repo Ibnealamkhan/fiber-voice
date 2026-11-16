@@ -39,7 +39,7 @@ internal sealed class DialerWindow : Form
         UseProxy = false, AllowAutoRedirect = false
     }) { Timeout = TimeSpan.FromSeconds(2) };
     private bool quitting, checking, ready;
-    private string? ringingId;
+    private string? ringingId, waitingId;
 
     public DialerWindow()
     {
@@ -189,6 +189,19 @@ internal sealed class DialerWindow : Form
             response.EnsureSuccessStatusCode();
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Text = "Fiber Voice";
+            // Call waiting: a second call rings during a call.
+            if (json.RootElement.TryGetProperty("waiting", out var waiting) && waiting.ValueKind == JsonValueKind.Object
+                && waiting.TryGetProperty("id", out var waitingProperty))
+            {
+                var waitingCall = waitingProperty.GetString();
+                if (waitingId != waitingCall)
+                {
+                    waitingId = waitingCall;
+                    tray.ShowBalloonTip(10000, "Call waiting", "Open Fiber Voice to answer or decline it.", ToolTipIcon.Info);
+                    ShowDialer();
+                }
+            }
+            else waitingId = null;
             var root = json.RootElement.GetProperty("call");
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("state", out var state) || state.GetString() != "incoming") { ringingId = null; return; }
             var id = root.GetProperty("id").GetString();

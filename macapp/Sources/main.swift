@@ -160,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     var monitor: Timer?
     var ringTimer: Timer?
     var ringingCallId: String?
+    var waitingCallId: String?
     var callActive = false
     var quitting = false
     var activity: NSObjectProtocol?
@@ -331,6 +332,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 self.stopRinging()
                 self.checkMissed(callId: id, number: self.ringingNumber)
             }
+            // Call waiting: a second call rings while you're on a call.
+            if let waiting = result?["waiting"] as? [String: Any], let id = waiting["id"] as? String {
+                if self.waitingCallId != id {
+                    self.waitingCallId = id
+                    self.callWaiting(id: id, number: waiting["number"] as? String ?? "Unknown number")
+                }
+            } else if self.waitingCallId != nil {
+                self.waitingCallId = nil
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call-waiting"])
+            }
         }
         pollCount += 1
         if pollCount % 4 == 1 { refreshSummary() }
@@ -382,6 +393,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         ringTimer?.invalidate()
         ring()
         ringTimer = Timer.scheduledTimer(withTimeInterval: 2.2, repeats: true) { [weak self] _ in self?.ring() }
+    }
+
+    func callWaiting(id: String, number: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Call waiting"
+        content.body = displayName(for: number) ?? formatPhone(number)
+        if displayName(for: number) != nil { content.subtitle = formatPhone(number) }
+        content.categoryIdentifier = "CALL_WAITING"
+        content.userInfo = ["callId": id, "number": number]
+        if !dndActive { content.sound = .default }
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "call-waiting", content: content, trigger: nil))
     }
 
     func ring() { NSSound(named: "Submarine")?.play() }

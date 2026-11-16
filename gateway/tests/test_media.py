@@ -86,6 +86,58 @@ class MediaNetworkTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(b.stats()['bytesReceived'],100)
         finally:await a.close();await b.close()
 
+# A phone-network gateway's offer (other networks and landlines reach the line through one).
+GATEWAY_SDP=('v=0\r\nc=IN IP6 2001:db8::7\r\nm=audio 14810 RTP/AVP 100 8 0 18 101\r\na=ptime:20\r\na=maxptime:80\r\n'
+             'a=rtpmap:100 AMR/8000\r\na=fmtp:100 mode-change-capability=2\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:0 PCMU/8000\r\n'
+             'a=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-15\r\na=silenceSupp:off - - - -\r\na=rtpmap:18 G729/8000\r\na=fmtp:18 annexb=no\r\n')
+
+
+class G711Tests(unittest.IsolatedAsyncioTestCase):
+    def test_codec_choice(self):
+        gateway=parse_sdp(GATEWAY_SDP,require_offered=False)
+        self.assertEqual((gateway['codec'],gateway['pt']),('AMR',100))  # AMR first when offered
+        no_amr=GATEWAY_SDP.replace(' 100 8 0 18 101',' 8 0 18 101')
+        g711=parse_sdp(no_amr,require_offered=False)
+        self.assertEqual((g711['codec'],g711['pt'],g711['eventPt'],g711['mode']),('PCMA',8,101,None))
+        static=parse_sdp(no_amr.replace('a=rtpmap:8 PCMA/8000\r\n','').replace(' 8 0 18 ',' 0 18 '),require_offered=False)
+        self.assertEqual(static['codec'],'PCMU')  # static payload type without rtpmap
+        hd=parse_sdp(GATEWAY_SDP.replace('100 8 0','120 8 0').replace('a=rtpmap:100 AMR/8000','a=rtpmap:120 AMR-WB/16000'),require_offered=False)
+        self.assertEqual(hd['codec'],'AMR-WB')  # HD voice stays first
+        self.assertEqual(parse_sdp(SDP,require_offered=False)['codec'],'AMR-WB')
+        with self.assertRaises(ValueError):  # answers to our own offers stay AMR/AMR-WB
+            parse_sdp(GATEWAY_SDP.replace(' 100 8 0 18 101',' 8 101'))
+
+    async def test_answer_and_pcma_rtp_roundtrip(self):
+        a=await MediaSession('::1').open();b=await MediaSession('::1').open()
+        try:
+            real=parse_sdp
+            def local(sdp,require_offered=True):
+                result=real(sdp.replace('IN IP6 ::1','IN IP6 2001:db8::5'),require_offered)
+                result['address']='::1';return result
+            with patch('media.parse_sdp',local):
+                offer=GATEWAY_SDP.replace(' 100 8 0 18 101',' 8 0 18 101')  # a caller offering G.711 only
+                a.negotiate(offer.replace('2001:db8::7','::1').replace('m=audio 14810',f'm=audio {b.port}'),incoming=True)
+                answer=a.sdp(answer=True)
+                self.assertIn(f'm=audio {a.port} RTP/AVP 8 101',answer)
+                self.assertIn('a=rtpmap:8 PCMA/8000',answer)
+                self.assertNotIn('a=fmtp:8',answer)
+                self.assertIn(f'RTP/AVP 8 101',a.sdp(direction='sendonly',current=True))  # hold keeps PCMA
+                b.negotiate(answer,incoming=True)
+            self.assertEqual((a.codec.name,b.codec.name),('PCMA','PCMA'))
+            for i in range(15):
+                samples=[int(6000*math.sin(2*math.pi*440*(i*160+j)/8000)) for j in range(160)]
+                a.input_queue.put_nowait(struct.pack('<'+'h'*160,*samples))
+            await asyncio.sleep(.22)
+            self.assertGreater(b.counters['rtpReceived'],4)
+            heard=[]
+            for _ in range(6):
+                pcm=b.receive_pcm();self.assertEqual(len(pcm),320)
+                heard+=struct.unpack('<160h',pcm)
+            self.assertGreater(max(abs(x) for x in heard),3000)  # the tone came through, not silence
+            self.assertIsNone(a.stats()['packetization'])
+        finally:await a.close();await b.close()
+
+
 class CodecSwitchTests(unittest.IsolatedAsyncioTestCase):
     async def test_update_can_switch_from_amr_wb_ringback_to_amr_when_answered(self):
         media=await MediaSession('::1').open()
@@ -99,6 +151,30 @@ class CodecSwitchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(media.frames,{})
             self.assertIn('AMR/8000',media.sdp(answer=True))
             self.assertEqual(len(media.codec.encode(bytes(media.codec.samples*2)))>0,True)
+        finally:
+            await media.close()
+
+
+class HoldOfferTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hold_offer_says_sendonly_with_the_negotiated_codec(self):
+        media=await MediaSession('::1').open()
+        try:
+            media.negotiate(SDP.replace('a=rtpmap:120','a=sendrecv\r\na=rtpmap:120'),incoming=True)
+            hold=media.sdp(direction='sendonly',current=True)
+            self.assertIn('a=sendonly',hold)
+            self.assertNotIn('a=recvonly',hold)
+            self.assertIn('m=audio %d RTP/AVP 120 127' % media.port,hold)  # same codec and events, no renegotiation
+            self.assertIn('a=sendrecv',media.sdp(direction='sendrecv',current=True))
+            # Answers still mirror the offer: their sendonly is our recvonly.
+            media.negotiate(SDP.replace('a=rtpmap:120','a=sendonly\r\na=rtpmap:120'),incoming=True)
+            self.assertIn('a=recvonly',media.sdp(answer=True))
+            self.assertIn('a=sendrecv',media.sdp())  # a fresh offer
+            # While on hold, answers to new offers keep the hold.
+            media.held=True
+            media.negotiate(SDP.replace('a=rtpmap:120','a=sendrecv\r\na=rtpmap:120'),incoming=True)
+            self.assertIn('a=sendonly',media.sdp(answer=True))
+            media.negotiate(SDP.replace('a=rtpmap:120','a=sendonly\r\na=rtpmap:120'),incoming=True)
+            self.assertIn('a=inactive',media.sdp(answer=True))
         finally:
             await media.close()
 

@@ -3,7 +3,7 @@
 const $=id=>document.getElementById(id);
 const LIVE=new Set(['dialing','ringing','early_media','incoming','answering','active','ending']);
 const KEYS=[['1',''],['2','ABC'],['3','DEF'],['4','GHI'],['5','JKL'],['6','MNO'],['7','PQRS'],['8','TUV'],['9','WXYZ'],['*',''],['0','+'],['#','']];
-const ui={view:'calls',filter:'all',query:'',history:[],missed:0,selected:null,ready:false,call:null,reg:null,started:false,local:{},system:{},contactsStatus:'unavailable',blocked:[],dnd:{},people:[],numbers:{},favorites:[],contactSel:null,contactQuery:''};
+const ui={view:'calls',filter:'all',query:'',history:[],missed:0,selected:null,ready:false,call:null,reg:null,started:false,local:{},system:{},contactsStatus:'unavailable',blocked:[],dnd:{},people:[],numbers:{},favorites:[],contactSel:null,contactQuery:'',waiting:null,held:null,answerAfter:null};
 let peer,stream,sessionId,timer,currentCallId,connectionMode,starting=false,generation=0,polling=false,toastTimer,videoCall=false,videoHidden=false,videoDeclinedShown=null;
 
 const text=(id,value)=>{$(id).textContent=value;};
@@ -467,6 +467,8 @@ const LABELS={dialing:'Calling…',ringing:'Ringing…',early_media:'Connecting�
 function renderCall(state){
   const was=ui.call;
   ui.ready=state.available===true;ui.call=state.call;
+  if('waiting' in state)ui.waiting=state.waiting;
+  if('held' in state)ui.held=state.held;
   const c=ui.call,live=Boolean(c&&LIVE.has(c.state));
   if(was&&LIVE.has(was.state)&&!live)loadHistory();
   $('dialer').hidden=live;$('incall').hidden=!live;
@@ -476,9 +478,12 @@ function renderCall(state){
     text('call-state',!ui.ready?(ui.reg?.state==='needs_authorization'?'Set up your landline to call.':ui.reg?.error?'Not connected · '+ui.reg.error:'Connecting to your landline…'):c&&c.error&&Date.now()/1000-(c.endedAt||0)<20?`${LABELS[c.state]||c.state} · ${c.error}`:'');
     $('call-state').className='status-line center'+(c?.error&&!ui.ready?' error':'');
     if(!live&&connectionMode==='call'&&c&&currentCallId===c.id)stopAudio(false);
+    renderWaiting();
     return;
   }
   const incoming=c.state==='incoming';
+  // "End & Answer": the waiting call now rings as the only call; answer it.
+  if(incoming&&ui.answerAfter===c.id&&!peer&&!starting){ui.answerAfter=null;setTimeout(()=>$('call-answer').click(),0);}
   $('incall').classList.toggle('ringing',incoming||c.state==='ringing'||c.state==='dialing');
   // A conference replaces the call the browser audio was attached to; follow it.
   if(connectionMode==='call'&&currentCallId&&currentCallId!==c.id&&!incoming)currentCallId=c.id;
@@ -492,7 +497,8 @@ function renderCall(state){
     $('incall-sub').hidden=!callerName;text('incall-sub',callerName?formatNumber(c.number):'');
   }
   renderParticipants(c);
-  const label=incoming&&c.offeredVideo?'Incoming video call':(LABELS[c.state]||c.state);
+  const label=c.onHold&&c.state==='active'?'On hold':incoming&&c.offeredVideo?'Incoming video call':(LABELS[c.state]||c.state);
+  $('incall').classList.toggle('on-hold',Boolean(c.onHold));
   text('incall-state',label+(c.error?` · ${c.error}`:''));
   const clockText=c.state==='active'&&c.connectedAt?(()=>{const s=Math.max(0,Math.floor(Date.now()/1000-c.connectedAt));return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;})():'';
   text('incall-timer',clockText);
@@ -502,8 +508,13 @@ function renderCall(state){
   $('call-end').setAttribute('aria-label',incoming?'Decline':'Hang up');
   $('incall-controls').hidden=incoming;
   $('toggle-keypad').disabled=c.state!=='active';
-  $('call-add').hidden=!(c.state==='active'&&!c.videoRequested&&!c.videoActive);
+  $('call-add').hidden=!(c.state==='active'&&!c.videoRequested&&!c.videoActive&&!c.onHold&&!ui.held&&!ui.waiting);
   $('call-add').disabled=Boolean(c.adding);
+  $('call-hold').hidden=!(c.state==='active'&&!c.videoRequested&&!c.videoActive&&!c.adding);
+  $('call-hold').disabled=switching;
+  $('call-hold').setAttribute('aria-pressed',String(Boolean(c.onHold)));
+  $('call-hold').querySelector('span').textContent=c.onHold?'Resume':'Hold';
+  renderWaiting();
   if(c.state!=='active'){$('incall-keypad').hidden=true;$('toggle-keypad').setAttribute('aria-pressed','false');}
   const m=c.media;
   text('call-media',m?.codec?`${m.codec} · ${m.packetization||''}`:'');
@@ -565,6 +576,71 @@ $('add-number').addEventListener('input',renderAddSuggestions);
 $('add-form').addEventListener('submit',e=>{e.preventDefault();addParticipant();});
 $('add-cancel').addEventListener('click',()=>$('add-dialog').close());
 
+/* ---------- Call waiting & hold ---------- */
+let switching=false,waitTone=null,toneContext=null;
+function waitBeep(){
+  try{
+    toneContext=toneContext||new AudioContext();
+    const t=toneContext.currentTime;
+    for(const d of [0,.35]){
+      const osc=toneContext.createOscillator(),gain=toneContext.createGain();
+      osc.frequency.value=440;gain.gain.setValueAtTime(.0001,t+d);
+      gain.gain.exponentialRampToValueAtTime(.12,t+d+.02);gain.gain.exponentialRampToValueAtTime(.0001,t+d+.25);
+      osc.connect(gain).connect(toneContext.destination);osc.start(t+d);osc.stop(t+d+.3);
+    }
+  }catch{}
+}
+function setWaitTone(on){
+  if(on&&!waitTone){waitBeep();waitTone=setInterval(waitBeep,4000);}
+  else if(!on&&waitTone){clearInterval(waitTone);waitTone=null;}
+}
+function renderWaiting(){
+  const live=Boolean(ui.call&&LIVE.has(ui.call.state));
+  const w=live&&ui.waiting&&ui.waiting.state==='incoming'?ui.waiting:null,h=live?ui.held:null;
+  $('waiting-card').hidden=!w;setWaitTone(Boolean(w));
+  if(w){
+    const name=nameFor(w.number)||formatNumber(w.number);
+    avatar($('waiting-avatar'),name);text('waiting-name',name);
+    $('waiting-end').disabled=$('waiting-decline').disabled=switching;
+    $('waiting-hold').disabled=switching||ui.call.state!=='active'||!peer;
+  }
+  $('held-card').hidden=!h;
+  if(h){text('held-name',nameFor(h.number)||formatNumber(h.number));$('held-swap').disabled=switching||ui.call.state!=='active';$('held-end').disabled=switching;}
+}
+async function switchCalls(path,options={}){
+  if(switching)return;switching=true;renderWaiting();
+  try{renderCall(await api(path,{method:'POST',timeout:30000,...options}));}
+  catch(e){toast(e.message);}
+  finally{switching=false;if(ui.call)renderCall({available:ui.ready,call:ui.call});else renderWaiting();}
+}
+// Hold & Answer: the current call goes on hold and the browser audio moves to the new call.
+function answerWaiting(){if(ui.waiting)switchCalls(`/api/calls/${encodeURIComponent(ui.waiting.id)}/answer-waiting`);return Boolean(ui.waiting);}
+// End & Answer: hang up the current call; the waiting call then rings as the only call and is answered.
+async function endAndAnswer(){
+  if(!ui.waiting)return false;
+  ui.answerAfter=ui.waiting.id;
+  await stopAudio();
+  pollCall();
+  return true;
+}
+async function declineWaiting(){
+  const w=ui.waiting;if(!w)return false;
+  try{await api(`/api/calls/${encodeURIComponent(w.id)}`,{method:'DELETE'});ui.waiting=null;renderWaiting();pollCall();}catch(e){toast(e.message);}
+  return true;
+}
+$('waiting-hold').addEventListener('click',answerWaiting);
+$('waiting-end').addEventListener('click',endAndAnswer);
+$('held-swap').addEventListener('click',()=>switchCalls('/api/calls/swap'));
+$('held-end').addEventListener('click',async()=>{
+  const h=ui.held;if(!h)return;
+  try{await api(`/api/calls/${encodeURIComponent(h.id)}`,{method:'DELETE'});ui.held=null;renderWaiting();pollCall();}catch(e){toast(e.message);}
+});
+$('waiting-decline').addEventListener('click',declineWaiting);
+$('call-hold').addEventListener('click',()=>{
+  const c=ui.call;if(!c)return;
+  switchCalls(`/api/calls/${encodeURIComponent(c.id)}/hold`,{body:JSON.stringify({hold:!c.onHold})});
+});
+
 /* ---------- Video stage ---------- */
 function renderVideo(c,clockText,callerName){
   const negotiating=['dialing','ringing','early_media','answering'].includes(c.state);
@@ -599,6 +675,11 @@ $('show-video').addEventListener('click',()=>{videoHidden=false;if(ui.call)rende
 $('remote-video').addEventListener('loadeddata',()=>{if(ui.call)renderCall({available:ui.ready,call:ui.call});});
 $('call-end').addEventListener('click',async()=>{
   const id=ui.call?.id,bound=currentCallId;
+  if(ui.held&&id&&ui.call.state==='active'){
+    // Another call is on hold: end only this one; the browser audio carries on with the held call.
+    try{await api(`/api/calls/${encodeURIComponent(id)}`,{method:'DELETE'});renderCall(await api('/api/calls/current'));}catch(e){toast(e.message);}
+    return;
+  }
   await stopAudio();
   if(id&&id!==bound)try{await api(`/api/calls/${encodeURIComponent(id)}`,{method:'DELETE'});}catch{}
 });
@@ -705,7 +786,7 @@ function start(){
   $('app').hidden=false;ui.started=true;
   showView(ui.view,ui.filter);pollRegistration();pollCall();loadHistory();loadContacts();loadScreening();refreshStatus();renderContactsBanner();
 }
-function stop(){ui.started=false;stopAudio();$('app').hidden=true;ui.history=[];ui.missed=0;ui.local={};ui.blocked=[];ui.dnd={};ui.numbers={};ui.favorites=[];ui.contactSel=null;text('line-number','—');}
+function stop(){ui.started=false;stopAudio();ui.waiting=ui.held=ui.answerAfter=null;setWaitTone(false);$('app').hidden=true;ui.history=[];ui.missed=0;ui.local={};ui.blocked=[];ui.dnd={};ui.numbers={};ui.favorites=[];ui.contactSel=null;text('line-number','—');}
 // Hooks for the native Mac shell (click-to-call links, notification actions, menu bar).
 function dial(number){
   const value=String(number||'').replace(/[^\d+]/g,'').slice(0,16);
@@ -721,5 +802,5 @@ async function answer(withVideo=false){
 }
 function focusDialer(){if(ui.started)showView('calls',ui.filter);$('number').focus();return true;}
 function decline(){if(ui.call&&LIVE.has(ui.call.state)){$('call-end').click();return true;}return false;}
-window.fiberApp={start,stop,dial,answer,answerVideo:()=>answer(true),decline,focusDialer,setSystemContacts,editName,refreshScreening:loadScreening,showContacts:()=>showView('contacts'),addContact,showDnd:()=>showView('dnd'),showBlocked:()=>showView('blocked'),showMissed:()=>showView('calls','missed'),showRecents:()=>showView('calls','all'),showConnection:()=>showView('connection'),get started(){return ui.started;}};
+window.fiberApp={start,stop,dial,answer,answerVideo:()=>answer(true),decline,answerWaiting,endAndAnswer,declineWaiting,focusDialer,setSystemContacts,editName,refreshScreening:loadScreening,showContacts:()=>showView('contacts'),addContact,showDnd:()=>showView('dnd'),showBlocked:()=>showView('blocked'),showMissed:()=>showView('calls','missed'),showRecents:()=>showView('calls','all'),showConnection:()=>showView('connection'),get started(){return ui.started;}};
 })();

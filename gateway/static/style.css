@@ -325,3 +325,23 @@ h2{font-size:15px;font-weight:600}
 .add-suggest button:hover,.add-suggest button:focus-visible{background:var(--hover)}
 .add-suggest .who{display:grid}
 .add-suggest small{color:var(--muted);font-size:11px}
+
+/* ---------- Call waiting & hold ---------- */
+
+.waiting-card{width:100%;max-width:300px;margin:0 0 18px;padding:12px;border-radius:14px;background:color-mix(in srgb,var(--accent-soft) 70%,var(--panel));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));animation:arrive .2s ease-out}
+.waiting-who{display:flex;align-items:center;gap:10px}
+.waiting-who small{display:block;color:var(--accent);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.waiting-who strong{display:block;font-size:15px;overflow-wrap:anywhere}
+.waiting-card .initials{animation:pulse 1.4s infinite}
+.waiting-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.waiting-actions .btn{flex:1 1 auto;padding:0 10px}
+.held-card{display:flex;align-items:center;gap:10px;width:100%;max-width:300px;margin:16px 0 0;padding:9px 10px 9px 12px;border-radius:12px;background:var(--hover);border:1px solid var(--line)}
+.held-card>svg{color:var(--warn)}
+.held-who{flex:1;min-width:0}
+.held-who small{display:block;color:var(--muted);font-size:11px}
+.held-who strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.held-card .btn svg{width:15px;height:15px}
+.icon-btn.end{color:var(--danger)}
+.icon-btn.end:hover{background:var(--danger-soft);color:var(--danger)}
+.incall.on-hold .avatar{background:var(--hover);color:var(--warn)}
+@keyframes arrive{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}

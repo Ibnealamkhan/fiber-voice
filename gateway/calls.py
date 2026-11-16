@@ -10,6 +10,7 @@ from media import MediaSession, codec_capabilities
 from video import VideoSession, parse_video
 from registration import first, digest_authorization, digest_parameters
 
+ALLOW='INVITE, ACK, CANCEL, BYE, OPTIONS, PRACK, UPDATE, INFO, NOTIFY'
 LIVE = {'dialing','ringing','early_media','incoming','answering','active','ending'}
 
 
@@ -139,6 +140,9 @@ class Call:
     browser_track: object=None
     attach_task: object=None
     screened: str|None=None
+    on_hold: bool=False
+    offer_pending: bool=False
+    ended_by: str=''
 
     def spawn(self,coroutine):
         task=asyncio.create_task(coroutine);self.tasks.add(task)
@@ -150,7 +154,7 @@ class Call:
                 'error':self.error,'sipCode':self.last_sip,'createdAt':self.created,
                 'connectedAt':self.connected,'endedAt':self.ended,
                 'videoRequested':self.video,'offeredVideo':self.offered_video,
-                'conference':self.conference,'adding':bool(self.adding and self.adding.state in LIVE),
+                'conference':self.conference,'onHold':self.on_hold,'adding':bool(self.adding and self.adding.state in LIVE),
                 'participants':[{k:p.get(k) for k in ('number','status','error')} for p in self.participants],
                 'videoActive':bool(self.media and getattr(self.media,'video',None) and self.media.video.active),
                 'media':self.media.stats() if self.media else None}
@@ -163,16 +167,27 @@ class Calls:
         self.screening=screening
         self.media_factory=media_factory
         self.current=None
+        self.waiting=None  # a second incoming call ringing during a call (call waiting)
+        self.held=None     # the other call, on hold, after answering a waiting call
         self.dialogs={}
         self.background=set()
         self.lock=asyncio.Lock()
         self.conference_lock=asyncio.Lock()
+        self.switch_lock=asyncio.Lock()
         self.capabilities=codec_capabilities()
         registration.call_handler=self
 
     def status(self):
         return {'available':self.registration.status()['registered'] and self.capabilities['ready'],
-                'codecs':self.capabilities,'call':self.current.public() if self.current else None}
+                'codecs':self.capabilities,'call':self.current.public() if self.current else None,
+                'waiting':self.waiting.public() if self.waiting and self.waiting.state in LIVE else None,
+                'held':self.held.public() if self.held and self.held.state in LIVE else None}
+
+    def can_wait(self):
+        """A second incoming call can ring (call waiting) during one connected voice call."""
+        c=self.current
+        return bool(c and c.state=='active' and not c.video and self.waiting is None and self.held is None
+                    and not (c.conference and c.adding and c.adding.state in LIVE))
 
     async def new_media(self,video=False):
         local=self.registration.writer.get_extra_info('sockname')[0]
@@ -246,7 +261,7 @@ class Calls:
         if method not in ('ACK','CANCEL'):lines += ['Contact: '+self.contact(call)]
         lines += ['User-Agent: FiberGateway/0.2','X-Client: JSE']
         if method=='INVITE':
-            lines += ['Supported: 100rel, timer, replaces','Allow: INVITE, ACK, CANCEL, BYE, OPTIONS, PRACK, UPDATE, INFO',
+            lines += ['Supported: 100rel, timer, replaces','Allow: '+ALLOW,
                       'P-Preferred-Identity: <'+self.registration.config['publicIdentity']+'>',
                       'P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel',
                       *(['Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";video'] if call.video else []),
@@ -425,7 +440,8 @@ class Calls:
                 if call.last_response:await self.registration._send(call.last_response)
                 return True
             if await self.screen(sip_id,headers):return True
-            if self.current and self.current.state in LIVE:
+            waiting=bool(self.current and self.current.state in LIVE)
+            if waiting and not self.can_wait():
                 await self.registration._send(response_message(headers,486,'Busy Here'));return True
             # Claim the call synchronously before the asynchronous setup task runs.
             from_uri=uri_from(first(headers,'from'))
@@ -436,7 +452,8 @@ class Calls:
             call.local_from=first(headers,'to')+';tag='+call.local_tag
             call.target=uri_from(first(headers,'contact',from_uri));call.routes=headers.get('record-route',[])[:]
             call.invite_cseq=int(first(headers,'cseq').split()[0])
-            self.current=call
+            if waiting:self.waiting=call
+            else:self.current=call
             self.remember(call)
             await self.registration._send(response_message(headers,100,'Trying'))
             call.spawn(self.prepare_incoming(call,body))
@@ -465,8 +482,14 @@ class Calls:
             return True
         if method=='ACK':
             if call.state=='answering':call.ack_event.set();call.state='active';call.connected=time.time()
+            if body and call.offer_pending:
+                # Answer to the offer we made in a 200 OK (re-INVITE without SDP).
+                call.offer_pending=False
+                try:call.media.negotiate(body.decode(),incoming=True)
+                except Exception as error:call.trace.append(f'ACK answer not usable: {error}')
             return True
         if method=='BYE':
+            call.ended_by='network'
             await self.registration._send(response_message(headers,200,'OK',call.local_tag))
             await self.finish(call,'ended');return True
         if method=='NOTIFY' and call.conference:
@@ -492,9 +515,16 @@ class Calls:
             if call.state not in ('active','answering'):
                 await self.registration._send(response_message(headers,491,'Request Pending',call.local_tag));return True
             try:
-                if body:call.media.negotiate(body.decode(),incoming=True)
-                response_body=call.media.sdp(answer=True) if body else ''
+                if body:
+                    call.media.negotiate(body.decode(),incoming=True)
+                    response_body=call.media.sdp(answer=True)
+                elif method=='INVITE':
+                    # Re-INVITE without SDP: we make the offer (current media, held or not), the ACK answers.
+                    response_body=call.media.sdp(direction='sendonly' if call.on_hold else 'sendrecv',current=True)
+                    call.offer_pending=True
+                else:response_body=''
                 reply=response_message(headers,200,'OK',call.local_tag,['Contact: '+self.registration.contact],response_body)
+                call.trace.append(f"→ 200 to {method}"+(' (our offer)' if not body and method=='INVITE' else ''))
             except Exception:reply=response_message(headers,488,'Not Acceptable Here',call.local_tag)
             await self.registration._send(reply);return True
         return False
@@ -523,7 +553,10 @@ class Calls:
             call.offered_video=parse_video(body.decode()) is not None
             call.media=await self.new_media(call.offered_video)
             call.media.on_error=lambda error:call.spawn(self.media_failed(call,error))
+            call.media.sending=False  # like a phone, send no audio until the call is answered
             call.media.negotiate(body.decode(),incoming=True)
+            remote=call.media.remote or {}
+            call.trace.append(f"offer: {remote.get('codec')} {remote.get('direction')}"+(' (call waiting)' if call is self.waiting else ''))
             call.last_response=response_message(call.incoming_headers,180,'Ringing',call.local_tag,['Contact: '+self.registration.contact])
             await self.registration._send(call.last_response)
             await asyncio.sleep(45)
@@ -544,7 +577,14 @@ class Calls:
         if call is not self.current or call.state!='incoming' or not call.media:raise ValueError('No incoming call ready to answer')
         call.state='answering'
         call.answered_sdp=call.media.sdp(answer=True)
-        call.last_response=response_message(call.incoming_headers,200,'OK',call.local_tag,['Contact: '+self.contact(call)],call.answered_sdp)
+        extra=['Contact: '+self.contact(call),'Supported: 100rel, timer, replaces','Allow: '+ALLOW]
+        expires=first(call.incoming_headers,'session-expires')
+        match=re.match(r'\s*(\d+)',expires or '')
+        if match and 'timer' in ','.join(call.incoming_headers.get('supported',[])).lower():
+            # RFC 4028: confirm the caller's session timer; the caller refreshes it.
+            extra+=[f'Session-Expires: {match[1]};refresher=uac','Require: timer']
+        call.last_response=response_message(call.incoming_headers,200,'OK',call.local_tag,extra,call.answered_sdp)
+        call.media.sending=True
         await self.registration._send(call.last_response)
         call.spawn(self.wait_ack(call))
 
@@ -583,6 +623,7 @@ class Calls:
             await self.finish(call,'cancelled');return
         if call.direction=='incoming' and call.state=='incoming':call.user_declined=True;await self.reject(call);return
         if call.state in ('active','answering') or call.remote_tag and call.direction=='outgoing':
+            call.ended_by=call.ended_by or 'you'
             call.state='ending';await self.bye(call);await self.finish(call,'ended');return
         call.cancel_requested=True;call.state='ending'
         await self.send_cancel(call)
@@ -614,6 +655,14 @@ class Calls:
     async def finish(self,call,state,error=None):
         if call.ended:return
         call.state=state;call.error=error;call.ended=time.time()
+        if call.connected and call.ended-call.connected<30 and not call.conference:
+            # Diagnostic log (gateway.log): why a connected call ended early, numbers masked.
+            stats=call.media.stats() if call.media else {}
+            remote=(call.media.remote or {}) if call.media else {}
+            print(masked(f"Call with …{call.number[-4:]} ended after {int(call.ended-call.connected)} s by {call.ended_by or state}:"
+                         f" sent {stats.get('rtpSent')}, received {stats.get('rtpReceived')} packets,"
+                         f" network audio {remote.get('codec')} {remote.get('direction')}"+(f', error {error}' if error else '')),flush=True)
+            for line in call.trace[-12:]:print('  '+line,flush=True)
         if call.conference and call.adding and call.adding.state in LIVE:
             print(f'Conference ended ({state}) while …{call.adding.number[-4:]} was being added',flush=True)
             self.spawn(self.hangup(call.adding))
@@ -624,13 +673,76 @@ class Calls:
         tasks=[t for t in call.tasks if t is not current]
         for task in tasks:task.cancel()
         await asyncio.gather(*tasks,return_exceptions=True)
+        if call is self.waiting:self.waiting=None
+        if call is self.held:self.held=None
+        if call is self.current:
+            if self.held and self.held.state=='active':
+                # The call on hold stays connected, still on hold, and keeps the browser audio.
+                promoted,self.held=self.held,None
+                if call.peer:await self.move_audio(call,promoted)
+                self.current=promoted
+            elif self.waiting and self.waiting.state=='incoming':
+                self.current,self.waiting=self.waiting,None  # the waiting call now rings as a normal call
         # Stop the browser leg first so nothing asks the media for audio while it closes.
         if call.peer:await call.peer.close()
         if call.media:await call.media.close()
 
     async def disconnected(self):
-        if self.current and self.current.state in LIVE:
-            await self.finish(self.current,'failed','SIP connection lost')
+        for call in (self.waiting,self.held,self.current):
+            if call and call.state in LIVE:
+                await self.finish(call,'failed','SIP connection lost')
+
+    # ---- Call waiting and hold ----
+
+    async def answer_waiting(self,call):
+        """Answer the waiting call: put the current call on hold and move the browser audio over."""
+        async with self.switch_lock:
+            if call is not self.waiting or call.state!='incoming' or not call.media:
+                raise ValueError('No waiting call to answer')
+            active=self.current
+            if not active or active.state!='active' or not active.peer:
+                raise ValueError('The current call is not connected')
+            await self.choose_video(call,False)  # a waiting call is answered voice-only
+            await self.set_on_hold(active,True)
+            await self.move_audio(active,call)
+            self.held,self.current,self.waiting=active,call,None
+            call.invite_started=True
+            await self.answer(call)
+            print(f'Call waiting: answered …{call.number[-4:]}, …{active.number[-4:]} on hold',flush=True)
+
+    async def swap(self):
+        """Switch between the connected call and the call on hold."""
+        async with self.switch_lock:
+            active,held=self.current,self.held
+            if not active or not held or active.state!='active' or held.state!='active':
+                raise ValueError('There is no call on hold to switch to')
+            await self.set_on_hold(active,True)
+            await self.move_audio(active,held)
+            self.current,self.held=held,active
+            await self.set_on_hold(held,False)
+
+    async def resume(self,call,on=False):
+        """Hold or resume the connected call."""
+        async with self.switch_lock:
+            if call is not self.current or call.state!='active':raise ValueError('No connected call')
+            if call.conference and call.adding:raise ValueError('Wait until the person you are adding answers')
+            await self.set_on_hold(call,on)
+
+    async def set_on_hold(self,call,on):
+        if call.on_hold==on:return
+        # Silence both ways right away; the re-INVITE tells the network and the other side.
+        call.on_hold=on
+        if call.media:call.media.held=on
+        try:
+            accepted=await self.hold(call,'sendonly' if on else 'sendrecv')
+        except Exception as error:
+            accepted=False
+            print(f"{'Hold' if on else 'Resume'} failed for …{call.number[-4:]}: {error}",flush=True)
+        if not accepted and not on and call.state=='active':
+            # Still on hold at the network: show it as held so Resume can be pressed again.
+            print(f"Resume not accepted by the network for …{call.number[-4:]}",flush=True)
+            call.on_hold=True
+            if call.media:call.media.held=True
 
     async def media_failed(self,call,error):
         if call.state not in LIVE:return
@@ -683,22 +795,36 @@ class Calls:
 
     async def hold(self,call,direction='sendonly'):
         """Hold (a=sendonly) or resume (a=sendrecv) a call with a re-INVITE, as Jio's client does around merges."""
-        body=call.media.sdp(direction=direction)
-        code,headers,answer=await self.authenticated(call,'INVITE',body)
-        seq=first(headers,'cseq').split()[0]
-        if 200<=code<300 and seq.isdigit():
-            ack,_,_=self.request(call,'ACK',sequence=int(seq),authenticate=False)
-            await self.registration._send(ack)
-            if answer:
-                try:call.media.negotiate(answer.decode())
-                except Exception:pass
-        print(f"{'Hold' if direction=='sendonly' else 'Resume'} {'conference' if call.conference else 'call'}: SIP {code}",flush=True)
+        for attempt in range(3):
+            body=call.media.sdp(direction=direction,current=True)
+            code,headers,answer=await self.authenticated(call,'INVITE',body)
+            seq=first(headers,'cseq').split()[0]
+            if 200<=code<300 and seq.isdigit():
+                ack,_,_=self.request(call,'ACK',sequence=int(seq),authenticate=False)
+                await self.registration._send(ack)
+                if answer:
+                    # Our re-offer used the call's own payload numbers, which for incoming calls are the network's.
+                    try:call.media.negotiate(answer.decode(),incoming=True)
+                    except Exception:pass
+                break
+            if code>=300 and seq.isdigit():
+                # A refused re-INVITE is acknowledged within its own transaction.
+                ack,_,_=self.request(call,'ACK',sequence=int(seq),branch=call.invite_branch,authenticate=False)
+                await self.registration._send(ack)
+            # Glare (RFC 3261 14.1): the network was updating the call at the same time. Wait, then retry.
+            if code not in (487,491,500,503) or attempt==2 or call.state!='active':break
+            print(f"{'Hold' if direction=='sendonly' else 'Resume'} collided with a network update (SIP {code}); retrying",flush=True)
+            await asyncio.sleep(1+secrets.randbelow(1500)/1000)
+        print(f"{'Hold' if direction=='sendonly' else 'Resume'} {'conference' if call.conference else 'call'}: SIP {code}"
+              f" (network audio now {(call.media.remote or {}).get('direction')})",flush=True)
         return 200<=code<300
 
     async def add_participant(self,call,number):
         """Add someone to a connected call; the first time, turn the call into a network conference."""
         async with self.conference_lock:
             if call is not self.current or call.state!='active':raise ValueError('Add people during a connected call')
+            if self.held or self.waiting:raise ValueError('End the other call before adding people')
+            if call.on_hold:raise ValueError('Resume the call before adding people')
             if getattr(call.media,'video',None):raise ValueError('Conference calls are voice only')
             number_uri(number,self.registration.config['domain'])  # validates the number
             if call.conference and call.adding and call.adding.state in LIVE:
@@ -847,6 +973,10 @@ class Calls:
             call.error=reason
 
     async def close(self):
+        for call in (self.waiting,self.held):
+            if call and call.state in LIVE:
+                await self.hangup(call)
+                if not call.ended:await self.finish(call,'ended')
         if self.current and self.current.state in LIVE:
             await self.hangup()
             if not self.current.ended:await self.finish(self.current,'ended')

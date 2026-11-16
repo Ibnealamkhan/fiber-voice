@@ -52,6 +52,8 @@ All endpoints reject foreign `Host`/`Origin` and cross-site requests.
 | `POST /api/setup/trust`, `/otp`, `/verify`, `/reset` | Trust the router, request and verify the OTP, log out |
 | `GET /api/registration/status`, `POST /api/registration/retry` | SIP registration |
 | `POST /api/calls/{id}/participants` | Add someone (turns the call into a conference the first time) |
+| `POST /api/calls/{id}/hold` | Hold (`{"hold": true}`) or resume the connected call |
+| `POST /api/calls/{id}/answer-waiting`, `POST /api/calls/swap` | Hold the current call and answer the waiting one; switch between the two calls |
 | `POST /api/calls`, `POST /api/calls/{id}/answer`, `POST /api/calls/{id}/dtmf`, `DELETE /api/calls/{id}`, `GET /api/calls/current` | Calls (a WebRTC offer goes in the body) |
 | `GET/DELETE /api/history`, `POST /api/history/seen`, `DELETE /api/history/{id}` | Call log |
 | `GET/PUT /api/contacts`, `PUT /api/favorites` | Saved names and favourites |
@@ -67,6 +69,10 @@ All endpoints reject foreign `Host`/`Origin` and cross-site requests.
 - **Early dialogs.** The network sends `UPDATE`/`INFO`/`OPTIONS` while the callee's phone is ringing. These must be accepted (200 OK, with an SDP answer for UPDATE). Rejecting them with 481 makes the network drop the call with 480 after a few seconds.
 - **Failed calls.** Q.850 causes from `Reason` headers and SIP codes are mapped to plain messages. A number-masked SIP trace (last 4 digits plus length) goes to stdout, which is the Mac app's `gateway.log`.
 - **Screening.** Blocked callers get `603 Decline`. Do Not Disturb answers `480 Temporarily Unavailable`, so this client stays silent while the line's other devices keep ringing.
+- **Hold.** A hold re-INVITE re-offers the call's negotiated codec with `a=sendonly`, and resume uses `a=sendrecv`, as Jio's client builds them. Both directions go silent until resumed.
+  - After a hold or resume, the network often sends its own re-INVITE **without SDP**. The 200 OK must then carry our offer (`sendonly` while held, otherwise `sendrecv`), and the ACK brings the answer. Answering it without SDP leaves the far phone on hold.
+  - If the network is updating the call at the same moment, our re-INVITE gets 487/491/500. It is acknowledged and retried after 1–2.5 s, up to 3 times. A resume that still fails shows the call as on hold, so Resume can be pressed again.
+  - Answers to the network's offers keep our hold (`sendonly` or `inactive`) while held.
 - **Conference.** The factory address comes from provisioning (`factory`), or `sip:mmtel@conf-factory.<domain>` if missing. The focus is the JioFiber router itself, which only merges calls that already exist. A REFER asking it to dial a new number gets 500. Adding someone therefore works like a phone:
   1. The first time, INVITE the factory and move the current call in with `Refer-To: <sip:+91…@<domain>;user=phone;method=INVITE?Replaces=call-id;to-tag;from-tag>`. This is the exact form Jio's client builds in `VvmSession::initiateInDialogRefer`, and it's verified live.
   2. Hold the conference leg (re-INVITE `a=sendonly`), call the new person, and on answer REFER their call in the same way.
@@ -76,7 +82,8 @@ All endpoints reject foreign `Host`/`Origin` and cross-site requests.
 
   Browser audio follows whichever leg is active (`replaceTrack`). If the first move fails, audio returns to the original call.
 - **Video.** The offer is H.264 Constrained Baseline (`42c01f` at 640×480 and `42c00c` at 320×240), `packetization-mode=1`, `RTP/AVPF` with `nack pli` and `imageattr`, matching Jio's client. Video calls add the `;video` feature tag to Contact and an `Accept-Contact` header. Answers always mirror the offer's media lines: unused video is declined with port 0. Incoming video can be answered voice-only. This hasn't been verified against a live video call yet.
-- **Media.** The browser leg uses WebRTC ICE/DTLS-SRTP/Opus. The network leg uses AMR-WB or AMR, octet-aligned or bandwidth-efficient, over RTP/AVP on IPv6 ports 52000–52200.
+- **Media.** The browser leg uses WebRTC ICE/DTLS-SRTP/Opus. The network leg uses AMR-WB or AMR, octet-aligned or bandwidth-efficient, over RTP/AVP on IPv6 ports 52000–52200. G.711 (PCMA/PCMU) is used only when a caller offers no AMR: Jio's network handles hold/resume re-INVITEs on AMR calls but not reliably on G.711 calls.
+- **Incoming calls.** No RTP is sent until the call is answered. The 200 OK confirms the caller's session timer (`Session-Expires …;refresher=uac`, `Require: timer`) when it is offered.
 
 ## Tests
 
@@ -90,6 +97,8 @@ The suite covers:
 - Every AMR/AMR-WB mode and payload format.
 - Digest, PRACK, CANCEL races, late answers, incoming answer/cancel, and early-dialog UPDATE/INFO handling, including an AMR-WB → AMR switch when the call is answered.
 - Conference calls (moving the call in, adding people, busy and failed adds) and H.264 video in both directions.
+- Call waiting (Hold & Answer, Swap, End & Answer, decline, the caller hanging up, busy cases) and hold/resume: the `a=sendonly` hold offer, re-INVITEs without SDP, retry after a collision, and answers that keep the hold.
+- G.711 codec choice and a PCMA RTP round trip.
 - Failure-reason mapping.
 - Registration renewal and certificate-change rejection.
 - The OTP setup flow.
@@ -97,7 +106,14 @@ The suite covers:
 
 ## Scope
 
-One call at a time (a conference counts as one call), over the connection's IPv6 network. Video calls are a beta. Call waiting, call transfer and text messages are not implemented. Incoming calls need an SDP audio offer.
+One call at a time (a conference counts as one call), over the connection's IPv6 network. Video calls are a beta. Call transfer and text messages are not implemented. Incoming calls need an SDP audio offer.
+
+**Call waiting.** A second incoming call during a connected voice call rings as a waiting call (`waiting` in `GET /api/calls/current`). Anything after that gets 486 Busy, as do calls arriving during setup, video calls or a conference add. The waiting call can be:
+- answered with the current call on hold (*Hold & Answer*), after which *Swap* switches between them and the browser audio follows the connected call;
+- answered after ending the current call (*End & Answer*);
+- declined.
+
+If the connected call ends, the held call stays connected and on hold until resumed.
 
 ## References
 

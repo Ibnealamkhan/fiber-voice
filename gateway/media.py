@@ -1,4 +1,5 @@
-"""AMR/AMR-WB RFC 4867 RTP bridge for browser WebRTC audio."""
+"""AMR/AMR-WB (RFC 4867) and G.711 RTP bridge for browser WebRTC audio."""
+from array import array
 import asyncio
 import ctypes as C
 import ctypes.util
@@ -16,6 +17,10 @@ from aiortc import AudioStreamTrack
 NB_BITS = [95, 103, 118, 134, 148, 159, 204, 244, 39, None, None, None, None, None, None, 0]
 WB_BITS = [132, 177, 253, 285, 317, 365, 397, 461, 477, 40, None, None, None, None, 0, 0]
 OFFER_CODECS = {120: ('AMR-WB', True), 121: ('AMR-WB', False), 118: ('AMR', True), 119: ('AMR', False)}
+STATIC_PAYLOADS = {0: ('PCMU', 8000, 1), 8: ('PCMA', 8000, 1)}
+# For calls we answer: AMR-WB, then AMR; G.711 only when a caller offers no AMR. (Jio's network
+# handles hold/resume re-INVITEs on AMR calls, but not reliably on G.711 calls.)
+CODEC_RANK = {'AMR-WB': 0, 'AMR': 1, 'PCMA': 2, 'PCMU': 3}
 
 
 def library(name):
@@ -38,6 +43,89 @@ def library(name):
                 pass
         raise RuntimeError('Missing codec library: ' + name + '. Install opencore-amr and vo-amrwbenc.')
     return C.CDLL(path)
+
+
+# ---- G.711 (ITU-T G.711, the classic phone-network codec) ----
+
+def _segment(value, ends):
+    return next((i for i, end in enumerate(ends) if value <= end), len(ends))
+
+
+def _alaw_encode(pcm):
+    pcm >>= 3
+    if pcm >= 0:
+        mask = 0xD5
+    else:
+        mask, pcm = 0x55, -pcm - 1
+    seg = _segment(pcm, (0x1F, 0x3F, 0x7F, 0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF))
+    if seg >= 8:
+        return 0x7F ^ mask
+    value = (seg << 4) | ((pcm >> (1 if seg < 2 else seg)) & 0x0F)
+    return value ^ mask
+
+
+def _alaw_decode(value):
+    value ^= 0x55
+    t = (value & 0x0F) << 4
+    seg = (value & 0x70) >> 4
+    t = t + 8 if seg == 0 else (t + 0x108) << max(0, seg - 1)
+    return t if value & 0x80 else -t
+
+
+def _ulaw_encode(pcm):
+    pcm >>= 2
+    if pcm < 0:
+        pcm, mask = -pcm, 0x7F
+    else:
+        mask = 0xFF
+    pcm = min(pcm, 8159) + (0x84 >> 2)
+    seg = _segment(pcm, (0x3F, 0x7F, 0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF))
+    if seg >= 8:
+        return 0x7F ^ mask
+    return ((seg << 4) | ((pcm >> (seg + 1)) & 0x0F)) ^ mask
+
+
+def _ulaw_decode(value):
+    value = ~value & 0xFF
+    t = (((value & 0x0F) << 3) + 0x84) << ((value & 0x70) >> 4)
+    return 0x84 - t if value & 0x80 else t - 0x84
+
+
+G711_TABLES = {}
+
+
+def g711_tables(name):
+    if name not in G711_TABLES:
+        encode, decode = (_alaw_encode, _alaw_decode) if name == 'PCMA' else (_ulaw_encode, _ulaw_decode)
+        G711_TABLES[name] = (bytes(encode(s - 65536 if s >= 32768 else s) for s in range(65536)),
+                             array('h', (decode(v) for v in range(256))))
+    return G711_TABLES[name]
+
+
+class G711Codec:
+    """PCMA (A-law) or PCMU (µ-law): 8 kHz, one byte per sample, 20 ms per packet."""
+    wideband = False
+    mode = None
+    rate = 8000
+    samples = 160
+
+    def __init__(self, name):
+        self.name = name
+        self.encode_table, self.decode_table = g711_tables(name)
+        self.silence = bytes([self.encode_table[0]])
+
+    def encode(self, pcm):
+        table = self.encode_table
+        return bytes(table[s & 0xFFFF] for s in array('h', pcm))
+
+    def decode(self, frame=None):
+        if frame is None:
+            return bytes(self.samples * 2)  # lost packet: silence
+        table = self.decode_table
+        return array('h', (table[b] for b in frame)).tobytes()
+
+    def close(self):
+        pass
 
 
 class AmrCodec:
@@ -250,8 +338,15 @@ def parse_sdp(sdp, require_offered=True):
     if ip.version != 6 or ip.is_multicast or ip.is_loopback or ip.is_unspecified:
         raise ValueError('A unicast IPv6 media address is required')
     audio['address'] = str(ip)
+    chosen = None
     for pt in audio['pts']:
-        name, rate, channels = audio['maps'].get(pt, ('', 0, 0))
+        name, rate, channels = audio['maps'].get(pt, STATIC_PAYLOADS.get(pt, ('', 0, 0)))
+        if name in ('PCMA', 'PCMU') and rate == 8000 and channels == 1 and not require_offered:
+            candidate = {'pt': pt, 'codec': name, 'rate': 8000, 'octetAlign': False, 'mode': None, 'modes': [],
+                         'modePeriod': 1, 'modeNeighbor': False}
+            if chosen is None or CODEC_RANK[name] < CODEC_RANK[chosen['codec']]:
+                chosen = candidate
+            continue
         if name not in ('AMR', 'AMR-WB') or channels != 1 or rate != (16000 if name == 'AMR-WB' else 8000):
             continue
         params = audio['fmtp'].get(pt, {})
@@ -265,12 +360,15 @@ def parse_sdp(sdp, require_offered=True):
         modes = [int(x) for x in params.get('mode-set', '0,1,2,3,4,5,6,7' + (',8' if name == 'AMR-WB' else '')).split(',')]
         if not modes or any(m < 0 or m > (8 if name == 'AMR-WB' else 7) for m in modes):
             continue
-        audio.update({'pt': pt, 'codec': name, 'rate': rate, 'octetAlign': aligned, 'mode': max(modes), 'modes': modes,
-                      'modePeriod': int(params.get('mode-change-period', '1')), 'modeNeighbor': params.get('mode-change-neighbor', '0') == '1'})
-        event = next((p for p in audio['pts'] if audio['maps'].get(p) == ('TELEPHONE-EVENT', rate, 1)), None)
-        audio['eventPt'] = event
-        return audio
-    raise ValueError('No compatible AMR/AMR-WB audio format in SDP')
+        candidate = {'pt': pt, 'codec': name, 'rate': rate, 'octetAlign': aligned, 'mode': max(modes), 'modes': modes,
+                     'modePeriod': int(params.get('mode-change-period', '1')), 'modeNeighbor': params.get('mode-change-neighbor', '0') == '1'}
+        if chosen is None or CODEC_RANK[name] < CODEC_RANK[chosen['codec']]:
+            chosen = candidate
+    if chosen is None:
+        raise ValueError('No compatible AMR/AMR-WB or G.711 audio format in SDP')
+    audio.update(chosen)
+    audio['eventPt'] = next((p for p in audio['pts'] if audio['maps'].get(p) == ('TELEPHONE-EVENT', chosen['rate'], 1)), None)
+    return audio
 
 
 class ReturnAudio(AudioStreamTrack):
@@ -339,6 +437,8 @@ class MediaSession:
         self.return_fifo = av.AudioFifo()
         self.closed = False
         self.muted = False
+        self.held = False  # on hold: send silence and play silence
+        self.sending = True  # False while an incoming call is still ringing: no audio before the answer
         self.counters = {'rtpSent':0,'rtpReceived':0,'invalidPackets':0,'lateFrames':0,'concealedFrames':0,'discardedInputFrames':0,'rtcpReceived':0,'bytesSent':0,'bytesReceived':0}
         self.session_id = secrets.randbits(48)
         self.version = 0
@@ -368,26 +468,37 @@ class MediaSession:
                 for sock in sockets: sock.close()
         raise RuntimeError('No free local RTP/RTCP ports in 52000–52200')
 
-    def sdp(self, answer=False, direction=None):
-        if answer and not self.remote: raise ValueError('No remote audio offer')
+    def sdp(self, answer=False, direction=None, current=False):
+        """SDP for an offer, an answer (answer=True), or a re-offer of the call's negotiated
+        media with a new direction, e.g. for hold (current=True), as Jio's client builds it."""
+        negotiated = answer or current
+        if negotiated and not self.remote: raise ValueError('No remote audio offer')
         self.version += 1
-        codec_pts = list(OFFER_CODECS) if not answer else [self.remote['pt']]
-        events = [126,127] if not answer else ([self.remote['eventPt']] if self.remote.get('eventPt') is not None else [])
+        codec_pts = list(OFFER_CODECS) if not negotiated else [self.remote['pt']]
+        events = [126,127] if not negotiated else ([self.remote['eventPt']] if self.remote.get('eventPt') is not None else [])
         lines = ['v=0',f'o=- {self.session_id} {self.version} IN IP6 {self.local_address}',
                  's=Fiber voice',f'c=IN IP6 {self.local_address}','t=0 0',
                  f'm=audio {self.port} RTP/AVP ' + ' '.join(map(str, codec_pts+events)),
                  f'a=rtcp:{self.port+1} IN IP6 {self.local_address}', 'a=ptime:20', 'a=maxptime:200']
-        direction = direction or (self.remote['direction'] if answer else 'sendrecv')
-        lines.append('a=' + {'sendonly':'recvonly','recvonly':'sendonly'}.get(direction,direction))
+        if answer:
+            # An answer mirrors the offer's direction: their sendonly is our recvonly.
+            direction = direction or self.remote['direction']
+            direction = {'sendonly':'recvonly','recvonly':'sendonly'}.get(direction,direction)
+            if self.held:  # keep our side on hold when the other side sends a new offer
+                direction = 'inactive' if direction in ('recvonly','inactive') else 'sendonly'
+        else:
+            direction = direction or 'sendrecv'  # an offer states our own direction, e.g. sendonly to hold
+        lines.append('a=' + direction)
         for pt in codec_pts:
-            name, aligned = OFFER_CODECS[pt] if not answer else (self.remote['codec'],self.remote['octetAlign'])
+            name, aligned = OFFER_CODECS[pt] if not negotiated else (self.remote['codec'],self.remote['octetAlign'])
             rate = 16000 if name=='AMR-WB' else 8000
-            lines += [f'a=rtpmap:{pt} {name}/{rate}',f'a=fmtp:{pt} octet-align={int(aligned)}']
+            lines += [f'a=rtpmap:{pt} {name}/{rate}']
+            if name in ('AMR','AMR-WB'):lines.append(f'a=fmtp:{pt} octet-align={int(aligned)}')
         for pt in events:
-            rate = (16000 if pt==127 else 8000) if not answer else self.remote['rate']
+            rate = (16000 if pt==127 else 8000) if not negotiated else self.remote['rate']
             lines += [f'a=rtpmap:{pt} telephone-event/{rate}',f'a=fmtp:{pt} 0-15']
         session, audio = lines[:5], lines[5:]
-        if not answer:
+        if not negotiated:
             lines = session + audio + ((self.video.sdp_lines() or []) if self.video else [])
         else:
             # An answer must mirror the offer's media sections, in order; decline what we don't use.
@@ -414,7 +525,7 @@ class MediaSession:
             except RuntimeError:
                 old.close()
         if not self.codec:
-            self.codec = AmrCodec(remote['codec']=='AMR-WB',remote['mode'])
+            self.codec = G711Codec(remote['codec']) if remote['codec'] in ('PCMA','PCMU') else AmrCodec(remote['codec']=='AMR-WB',remote['mode'])
             previous_rate = self.rate
             self.rate = self.codec.rate
             if previous_rate != self.rate:
@@ -481,22 +592,23 @@ class MediaSession:
         start=asyncio.get_running_loop().time(); count=0
         while not self.closed:
             await asyncio.sleep(max(0,start+count*.02-asyncio.get_running_loop().time()))
-            if self.remote['direction'] not in ('sendonly','inactive'):
+            if self.sending and self.remote['direction'] not in ('sendonly','inactive'):
                 pcm=self.input_queue.get_nowait() if not self.input_queue.empty() else bytes(self.codec.samples*2)
                 if len(pcm) != self.codec.samples*2:
                     # A producer can straddle the first SDP format selection.
                     self.counters['discardedInputFrames']+=1
                     pcm=bytes(self.codec.samples*2)
-                if self.muted: pcm=bytes(self.codec.samples*2)
+                if self.muted or self.held: pcm=bytes(self.codec.samples*2)
                 period=max(1,self.remote['modePeriod'])
-                if count % period == 0 and self.target_mode != self.codec.mode:
+                if self.codec.mode is not None and count % period == 0 and self.target_mode != self.codec.mode:
                     choices=self.remote['modes']
                     if self.remote['modeNeighbor']:
                         candidates=[m for m in choices if (self.codec.mode<m<=self.target_mode) or (self.target_mode<=m<self.codec.mode)]
                         if candidates: self.codec.mode=min(candidates,key=lambda m:abs(m-self.codec.mode))
                     else:self.codec.mode=self.target_mode
                 frame=self.codec.encode(pcm)
-                self.send_packet(pack_amr([frame],self.codec.wideband,self.remote['octetAlign']),self.remote['pt'],self.timestamp,marker=count==0)
+                payload=frame if self.codec.mode is None else pack_amr([frame],self.codec.wideband,self.remote['octetAlign'])
+                self.send_packet(payload,self.remote['pt'],self.timestamp,marker=count==0)
             self.timestamp=(self.timestamp+self.codec.samples)&0xffffffff; count+=1
             if count*.02 < asyncio.get_running_loop().time()-start-.1:
                 start=asyncio.get_running_loop().time()-count*.02
@@ -507,7 +619,10 @@ class MediaSession:
         try:
             pt,seq,timestamp,ssrc,payload=parse_rtp(packet)
             if pt != self.remote['pt']: return
-            cmr,frames=unpack_amr(payload,self.codec.wideband,self.remote['octetAlign'])
+            if self.codec.mode is None:  # G.711: 160 bytes per 20 ms
+                cmr,frames=None,[payload[i:i+160] for i in range(0,len(payload),160)]
+            else:
+                cmr,frames=unpack_amr(payload,self.codec.wideband,self.remote['octetAlign'])
             if cmr in self.remote['modes']: self.target_mode=cmr
             if self.newest_timestamp is None: unwrapped=timestamp
             else:unwrapped=self.newest_timestamp+((timestamp-(self.newest_timestamp&0xffffffff)+(1<<31))%(1<<32)-(1<<31))
@@ -532,7 +647,8 @@ class MediaSession:
         self.play_timestamp+=self.codec.samples
         # Missing speech frames can be normal AMR DTX, not necessarily packet loss.
         if frame is None:self.counters['concealedFrames']+=1
-        return self.codec.decode(frame)
+        pcm=self.codec.decode(frame)
+        return bytes(len(pcm)) if self.held else pcm
 
     async def send_reports(self):
         while not self.closed:
@@ -563,7 +679,7 @@ class MediaSession:
     def stats(self):
         return {**self.counters, 'video': self.video.stats() if self.video else None,'codec':self.remote['codec'] if self.remote else None,
                 'error':self.error,
-                'packetization':('octet-aligned' if self.remote['octetAlign'] else 'bandwidth-efficient') if self.remote else None}
+                'packetization':(None if self.remote['codec'] in ('PCMA','PCMU') else 'octet-aligned' if self.remote['octetAlign'] else 'bandwidth-efficient') if self.remote else None}
 
     async def close(self):
         if self.closed:return

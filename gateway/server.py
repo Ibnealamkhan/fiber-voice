@@ -253,9 +253,11 @@ async def create_call(request):
         raise web.HTTPBadRequest(text=str(error))
 
 
-def selected_call(request):
-    call = request.app[CALLS].current
-    if not call or call.id != request.match_info['id']:
+def selected_call(request, include_others=False):
+    calls = request.app[CALLS]
+    candidates = (calls.current, calls.held, calls.waiting) if include_others else (calls.current,)
+    call = next((c for c in candidates if c and c.id == request.match_info['id']), None)
+    if not call:
         raise web.HTTPNotFound(text='Call not found')
     return call
 
@@ -279,9 +281,39 @@ async def answer_call(request):
 
 
 async def end_call(request):
-    call = selected_call(request)
+    call = selected_call(request, include_others=True)
     await request.app[CALLS].hangup(call)
     return web.json_response(call.public())
+
+
+async def answer_waiting(request):
+    calls = request.app[CALLS]
+    call = selected_call(request, include_others=True)
+    try:
+        await calls.answer_waiting(call)
+    except ValueError as error:
+        raise web.HTTPConflict(text=str(error))
+    return web.json_response(calls.status())
+
+
+async def swap_calls(request):
+    calls = request.app[CALLS]
+    try:
+        await calls.swap()
+    except ValueError as error:
+        raise web.HTTPConflict(text=str(error))
+    return web.json_response(calls.status())
+
+
+async def hold_call(request):
+    calls = request.app[CALLS]
+    call = selected_call(request)
+    body = await json_object(request)
+    try:
+        await calls.resume(call, body.get('hold') is True)
+    except ValueError as error:
+        raise web.HTTPConflict(text=str(error))
+    return web.json_response(calls.status())
 
 
 async def add_participant(request):
@@ -585,6 +617,9 @@ def create_app(registration=None, onboarding=None):
     app.router.add_get('/api/calls/current', calls_status)
     app.router.add_post('/api/calls', create_call)
     app.router.add_post('/api/calls/{id}/answer', answer_call)
+    app.router.add_post('/api/calls/{id}/hold', hold_call)
+    app.router.add_post('/api/calls/{id}/answer-waiting', answer_waiting)
+    app.router.add_post('/api/calls/swap', swap_calls)
     app.router.add_post('/api/calls/{id}/dtmf', dtmf_call)
     app.router.add_post('/api/calls/{id}/participants', add_participant)
     app.router.add_post('/api/calls/{id}/participants/cancel', cancel_participant)

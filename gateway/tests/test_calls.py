@@ -12,7 +12,7 @@ class FakeWriter:
 class FakeMedia:
     def __init__(self,address):self.remote=None;self.closed=False;self.track=None
     async def open(self):return self
-    def sdp(self,answer=False,direction=None):return SDP+("a="+direction+"\r\n" if direction else "")
+    def sdp(self,answer=False,direction=None,current=False):return SDP+("a="+direction+"\r\n" if direction else "")
     def negotiate(self,sdp,incoming=False):self.remote={'codec':'AMR-WB'}
     def stats(self):return {'codec':'AMR-WB'}
     async def close(self):self.closed=True
@@ -160,6 +160,25 @@ class IncomingAndLateTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(call.state,'active')
             await calls.incoming('BYE sip:alice@example.test SIP/2.0',{**dialog,'cseq':['2 BYE']},b'')
             self.assertEqual(call.state,'ended');self.assertTrue(call.media.closed)
+        finally:await calls.close()
+
+    async def test_incoming_answer_is_silent_until_answered_and_confirms_session_timer(self):
+        reg=FakeRegistration();calls=Calls(reg,FakeMedia)
+        headers={'via':['SIP/2.0/TLS router.example.test;branch=z9hG4bKgw'],
+                 'from':['<sip:+919000000000@example.test>;tag=gw'], 'to':['<sip:alice@example.test>'],
+                 'call-id':['gateway-call'], 'cseq':['1 INVITE'], 'contact':['<sip:gw@router.example.test>'],
+                 'supported':['replaces, path, 100rel, timer, resource-priority'],'session-expires':['1800'],'min-se':['90']}
+        await calls.incoming('INVITE sip:alice@example.test SIP/2.0',headers,SDP.encode())
+        await eventually(lambda:any(s.startswith('SIP/2.0 180') for s in reg.sent))
+        call=calls.current
+        try:
+            self.assertFalse(call.media.sending)  # no audio towards the caller while ringing
+            await calls.answer(call)
+            self.assertTrue(call.media.sending)
+            ok=next(s for s in reg.sent if s.startswith('SIP/2.0 200'))
+            self.assertIn('Session-Expires: 1800;refresher=uac',ok)
+            self.assertIn('Require: timer',ok)
+            self.assertIn('Supported: 100rel, timer, replaces',ok)
         finally:await calls.close()
 
     async def test_incoming_cancel_closes_without_answering(self):
