@@ -35,6 +35,7 @@ Open <http://127.0.0.1:8765/>. Press Ctrl+C to stop; the gateway deregisters onl
 | `contacts.py` | Names saved in the app and favourites |
 | `screening.py` | Block list and Do Not Disturb (manual, timed, nightly schedule, repeated callers) |
 | `enroll.py` | Terminal version of the setup flow |
+| `desktop.py` | Entry point for the Windows app: free loopback port, readiness file, exits when the app closes |
 | `static/` | The dialer UI: desktop layout, setup wizard, recents, contacts, settings |
 
 ## Private data
@@ -87,7 +88,8 @@ node --check static/app.js static/setup.js
 The suite covers:
 - Full WebRTC → AMR RTP → WebRTC round trips with non-silent audio in both directions.
 - Every AMR/AMR-WB mode and payload format.
-- Digest, PRACK, CANCEL races, late answers, incoming answer/cancel, and early-dialog UPDATE/INFO handling.
+- Digest, PRACK, CANCEL races, late answers, incoming answer/cancel, and early-dialog UPDATE/INFO handling, including an AMR-WB → AMR switch when the call is answered.
+- Conference calls (moving the call in, adding people, busy and failed adds) and H.264 video in both directions.
 - Failure-reason mapping.
 - Registration renewal and certificate-change rejection.
 - The OTP setup flow.
@@ -95,7 +97,7 @@ The suite covers:
 
 ## Scope
 
-One call at a time, over the connection's IPv6 network. Video, conferencing, call waiting and transfer are not implemented. Incoming calls need an SDP audio offer.
+One call at a time (a conference counts as one call), over the connection's IPv6 network. Video calls are a beta. Call waiting, call transfer and text messages are not implemented. Incoming calls need an SDP audio offer.
 
 ## References
 
